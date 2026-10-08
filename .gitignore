@@ -1,0 +1,43 @@
+# ---- npm / Node ----
+node_modules/
+dist/
+.vite/
+*.local
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---- ML weights & model cache ----
+# (auto-downloaded by `npm install` — never commit these)
+backend/models/
+.cache/
+whisper-tiny/
+*.onnx
+*.onnx.json
+*.safetensors
+*.bin
+*.h5
+*.msgpack
+
+# ---- Python ----
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# ---- test / tooling artifacts ----
+test-results/
+playwright-report/
+
+# ---- environment / secrets ----
+.env
+.env.*
+
+# ---- OS / editors ----
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

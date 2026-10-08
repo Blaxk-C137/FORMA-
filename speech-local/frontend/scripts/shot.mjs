@@ -1,0 +1,14 @@
+import { chromium } from "playwright-core";
+const browser = await chromium.launch({ headless: true, channel: "chromium-headless-shell" });
+const page = await browser.newPage({ viewport: { width: 1440, height: 950 } });
+await page.goto("http://localhost:5173/", { waitUntil: "networkidle" });
+await page.getByRole("tab", { name: /Upload file/i }).click();
+await page.setInputFiles("#capture input[type=file]", "/tmp/verify-test.wav");
+await page.waitForTimeout(400);
+await page.getByRole("button", { name: /Transcribe audio/i }).click();
+let got = "";
+for (let i = 0; i < 60 && !(got = await page.locator("textarea").inputValue()).trim(); i++) await page.waitForTimeout(500);
+await page.locator(".topbar").scrollIntoViewIfNeeded();
+await page.screenshot({ path: "/home/user/speech-local/shots/07-real-ml.png" });
+console.log("transcript:", got.slice(0, 80));
+await browser.close();
