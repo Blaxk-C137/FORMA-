@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
@@ -22,6 +22,7 @@ const BACKEND_DIR = path.resolve(process.cwd(), "../backend");
 type Mode = "starting" | "ml" | "stub";
 let mode: Mode = "starting";
 let child: ChildProcess | null = null;
+let retryAt = 0;
 
 function findPython(): string | null {
   const candidates =
@@ -29,7 +30,14 @@ function findPython(): string | null {
       ? [path.join(BACKEND_DIR, ".venv", "Scripts", "python.exe")]
       : [path.join(BACKEND_DIR, ".venv", "bin", "python")];
   for (const c of candidates) if (fs.existsSync(c)) return c;
-  for (const c of ["python3", "python"]) return c; // last resort: ambient python
+  // A fresh install provisions backend/.venv. Do not launch an ambient Python
+  // without the dependencies; that only creates a slow crash/retry loop.
+  if (process.env.FORMA_USE_SYSTEM_PYTHON === "1") {
+    for (const c of ["python3", "python"]) {
+      const found = spawnSync(c, ["-c", "import fastapi"], { stdio: "ignore" });
+      if (found.status === 0) return c;
+    }
+  }
   return null;
 }
 
@@ -54,20 +62,24 @@ function healthCheck(): Promise<boolean> {
 
 async function ensureBackend(): Promise<Mode> {
   if (mode === "ml") return mode;
+  if (mode === "stub" && Date.now() < retryAt) return mode;
   if (!mlExists()) {
     mode = "stub";
+    retryAt = Date.now() + 10000;
     return mode;
   }
   // reuse an already-running backend (e.g. started manually) before spawning
   if (await healthCheck()) {
     if (mode !== "ml") console.log("[forma] ML backend healthy — real Whisper Tiny + Piper online");
     mode = "ml";
+    retryAt = 0;
     return mode;
   }
   if (!child) {
     const python = findPython();
     if (!python) {
       mode = "stub";
+      retryAt = Date.now() + 10000;
       return mode;
     }
     console.log(`[forma] starting ML backend: ${python} main.py (port ${ML_PORT})`);
@@ -80,18 +92,21 @@ async function ensureBackend(): Promise<Mode> {
       console.warn(`[forma] ML backend exited (code ${code}) — falling back to dummy stub`);
       child = null;
       mode = "stub";
+      retryAt = Date.now() + 10000;
     });
   }
   for (let i = 0; i < 40; i++) {
     if (await healthCheck()) {
       if (mode !== "ml") console.log("[forma] ML backend healthy — real Whisper Tiny + Piper online");
       mode = "ml";
+      retryAt = 0;
       return mode;
     }
     await new Promise((r) => setTimeout(r, 500));
   }
   console.warn("[forma] ML backend did not become healthy — using dummy stub");
   mode = "stub";
+  retryAt = Date.now() + 10000;
   return mode;
 }
 

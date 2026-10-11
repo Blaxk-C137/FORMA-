@@ -83,11 +83,18 @@ if (!fs.existsSync(venvPy)) {
   run(python, [...pyArgs, "-m", "venv", ".venv"], { cwd: backendDir });
 }
 
-if (!fs.existsSync(depMarker)) {
-  say("installing torch (CPU) + backend requirements (first run takes a few minutes) …");
-  run(venvPy, ["-m", "pip", "install", "--quiet", "torch", "--index-url", "https://download.pytorch.org/whl/cpu"], { cwd: backendDir });
+// Bump this marker when backend requirements change. Upgrade the small Python
+// requirements set without needlessly redownloading torch on existing installs.
+const depsVersion = "2";
+const markerValue = fs.existsSync(depMarker) ? fs.readFileSync(depMarker, "utf8").trim() : "";
+if (markerValue !== depsVersion) {
+  say("checking/installing CPU torch + backend requirements (first run may take a few minutes) …");
+  const torchCheck = spawnSync(venvPy, ["-c", "import torch"], { stdio: "ignore" });
+  if (torchCheck.status !== 0) {
+    run(venvPy, ["-m", "pip", "install", "--quiet", "torch", "--index-url", "https://download.pytorch.org/whl/cpu"], { cwd: backendDir });
+  }
   run(venvPy, ["-m", "pip", "install", "--quiet", "-r", "requirements.txt"], { cwd: backendDir });
-  fs.writeFileSync(depMarker, new Date().toISOString());
+  fs.writeFileSync(depMarker, depsVersion);
 }
 
 const whisperReady = fs.existsSync(path.join(modelsDir, "whisper-tiny", "config.json"));

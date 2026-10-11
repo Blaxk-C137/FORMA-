@@ -1,27 +1,15 @@
 import type { Plugin, Connect } from "vite";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
-/**
- * Dummy speech backend — implements the app's API contract with stub models so
- * `npm install && npm run dev` runs the complete flow out of the box:
- *
- *   GET  /api/status      → { stt_ready, tts_ready, stub, models… }
- *   POST /api/transcribe  → { text, language, duration_ms, stub: true }
- *   POST /api/synthesize  → audio/wav bytes (a tone sequence, clearly not speech)
- *
- * Everything is labelled `stub: true` so the UI can stay honest: swap in the
- * real Whisper Tiny / Piper FastAPI backend later and nothing else changes.
- */
-
+/** Honest dummy speech API used only when the optional Python backend is absent. */
 const STUB_TEXT =
   "[dummy backend] This is a stub transcription. Your audio reached the server and the whole pipeline works — " +
   "the local Whisper Tiny model will replace this text once it is connected.";
 
 function json(res: ServerResponse, status: number, body: unknown) {
-  const data = JSON.stringify(body);
   res.statusCode = status;
   res.setHeader("Content-Type", "application/json");
-  res.end(data);
+  res.end(JSON.stringify(body));
 }
 
 function readBody(req: IncomingMessage): Promise<Uint8Array> {
@@ -42,7 +30,7 @@ function readBody(req: IncomingMessage): Promise<Uint8Array> {
   });
 }
 
-/** 16-bit PCM mono WAV — a soft pentatonic tone sequence, tempo from length_scale. */
+/** 16-bit PCM mono WAV — a soft pentatonic tone sequence, clearly a stub. */
 function synthWav(text: string, voice: string, lengthScale: number): Uint8Array {
   const sr = 22050;
   const noteDur = Math.max(0.12, 0.34 * lengthScale);
@@ -67,7 +55,6 @@ function synthWav(text: string, voice: string, lengthScale: number): Uint8Array 
   dv.setUint16(34, 16, true);
   ascii(36, "data");
   dv.setUint32(40, n * 2, true);
-
   const base = voice === "alba" ? 440 : 329.63;
   const scale = [1, 1.122, 1.26, 1.498, 1.682, 2, 2.245, 2.52];
   for (let i = 0; i < n; i++) {
@@ -76,12 +63,8 @@ function synthWav(text: string, voice: string, lengthScale: number): Uint8Array 
     const noteT = t - idx * noteDur;
     const freq = base * scale[(idx * 3 + 1) % scale.length] * (1 + 0.002 * Math.sin(t * 5.5));
     const env = Math.min(1, noteT / 0.02) * Math.exp((-3.2 * noteT) / noteDur);
-    const s =
-      Math.sin(2 * Math.PI * freq * t) * 0.55 +
-      Math.sin(4 * Math.PI * freq * t) * 0.22 +
-      Math.sin(6 * Math.PI * freq * t) * 0.08;
-    const v = Math.max(-1, Math.min(1, s * env * 0.8)) * 32767;
-    dv.setInt16(44 + i * 2, v, true);
+    const s = Math.sin(2 * Math.PI * freq * t) * 0.55 + Math.sin(4 * Math.PI * freq * t) * 0.22 + Math.sin(6 * Math.PI * freq * t) * 0.08;
+    dv.setInt16(44 + i * 2, Math.max(-1, Math.min(1, s * env * 0.8)) * 32767, true);
   }
   return bytes;
 }
@@ -99,6 +82,22 @@ export function stubApiPlugin(): Plugin {
         stt_model: "dummy-stt v0 (stub)",
         tts_model: "dummy-tts v0 (stub)",
         stub: true,
+      });
+    }
+
+    if (req.method === "GET" && url === "/api/gemini/settings") {
+      return json(res, 200, {
+        configured: Boolean(process.env.FORMA_GEMINI_API_KEY),
+        vault_available: false,
+        key_source: process.env.FORMA_GEMINI_API_KEY ? "environment" : null,
+        model_default: "gemini-3.5-flash-lite",
+        message: "The Python credential service is unavailable; saved-key settings need the real backend.",
+      });
+    }
+
+    if (url.startsWith("/api/gemini/")) {
+      return json(res, 503, {
+        detail: "Gemini needs the Python backend and an OS credential vault. Install/start the real backend, then add the key in Settings.",
       });
     }
 
@@ -120,7 +119,7 @@ export function stubApiPlugin(): Plugin {
             const file = form.get("audio");
             if (file && typeof file === "object" && "size" in file) audioBytes = file.size;
           }
-          await new Promise((r) => setTimeout(r, 320)); // visible loading state
+          await new Promise((r) => setTimeout(r, 320));
           json(res, 200, {
             text: `${STUB_TEXT}\n\n(audio: ${audioBytes} bytes · language: ${language})`,
             language,
@@ -138,11 +137,7 @@ export function stubApiPlugin(): Plugin {
       void (async () => {
         try {
           const body = await readBody(req);
-          const payload = JSON.parse(new TextDecoder().decode(body)) as {
-            text?: string;
-            voice?: string;
-            length_scale?: number;
-          };
+          const payload = JSON.parse(new TextDecoder().decode(body)) as { text?: string; voice?: string; length_scale?: number };
           const text = String(payload.text ?? "");
           if (!text.trim()) return json(res, 400, { detail: "Text is required." });
           await new Promise((r) => setTimeout(r, 260));

@@ -1,142 +1,184 @@
 import { chromium } from "playwright-core";
-import { execSync } from "node:child_process";
 import fs from "node:fs";
 
-const shot = (n) => `/home/user/speech-local/shots/${n}.png`;
-execSync("mkdir -p /home/user/speech-local/shots");
-
+const shot = (name) => `/home/user/speech-local/shots/${name}.png`;
+fs.mkdirSync("/home/user/speech-local/shots", { recursive: true });
 const browser = await chromium.launch({ headless: true, channel: "chromium-headless-shell" });
 const page = await browser.newPage({ viewport: { width: 1440, height: 950 } });
 const errors = [];
-page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
-page.on("pageerror", (e) => errors.push(String(e)));
-
-await page.goto("http://localhost:5173/", { waitUntil: "networkidle" });
-await page.waitForTimeout(1200);
-
 const checks = [];
-const ok = (name, pass, extra = "") => checks.push(`${pass ? "PASS" : "FAIL"} ${name}${extra ? " — " + extra : ""}`);
+const ok = (name, pass, extra = "") => checks.push(`${pass ? "PASS" : "FAIL"} ${name}${extra ? ` — ${extra}` : ""}`);
+page.on("console", (message) => message.type() === "error" && errors.push(message.text()));
+page.on("pageerror", (error) => errors.push(String(error)));
 
-ok("page title", (await page.title()).includes("Forma"));
+await page.goto("http://localhost:5173/", { waitUntil: "domcontentloaded" });
+await page.waitForTimeout(450);
 const api = await (await fetch("http://localhost:5173/api/status")).json();
 const real = !api.stub;
-ok("status pill reflects backend", (await page.getByText(real ? "LOCAL MODELS" : "DUMMY MODE").count()) >= 1, real ? "real ML" : "stub");
-// studio-first: capture + speech visible without scrolling
-ok("capture above the fold", await page.locator("#capture").evaluate((el) => el.getBoundingClientRect().top < window.innerHeight / 2));
-ok("speech panel above the fold", await page.locator("#speech").evaluate((el) => el.getBoundingClientRect().bottom < window.innerHeight + 220));
-const frame = page.locator(".shader-frame");
-ok("shader-frame present", (await frame.count()) === 1);
-const bg = page.locator(".shader-frame .threeui-background.predictive-arc");
-ok("PredictiveArc host mounted", (await bg.count()) === 1, await bg.getAttribute("class"));
-const canvas = page.locator(".shader-frame canvas");
-ok("canvas present", (await canvas.count()) === 1);
-const size = await canvas.evaluate((c) => ({ w: c.width, h: c.height, cssW: c.clientWidth, cssH: c.clientHeight }));
-ok("canvas sized", size.w > 100 && size.h > 100, JSON.stringify(size));
 
-const px = await canvas.evaluate((c) => {
-  const ctx = c.getContext("2d");
-  const d = ctx.getImageData(0, 0, c.width, c.height).data;
-  let lit = 0, maxB = 0;
-  for (let i = 0; i < d.length; i += 4) {
-    const r = d[i], g = d[i + 1], b = d[i + 2];
-    if (r + g + b > 90) lit++;
-    if (b > maxB) maxB = b;
-  }
-  return { lit, maxB, total: d.length / 4 };
-});
-ok("arc pixels drawing", px.lit > 500 && px.maxB > 120, `lit=${px.lit} maxBlue=${px.maxB}`);
-ok("canvas context alive", await canvas.evaluate((c) => c.getContext("2d") !== null));
-
-// arc band lives below the fold (studio-first layout) — bring it into view so its
-// IntersectionObserver wakes the renderer, then confirm it animates
-await page.locator(".arc-band").scrollIntoViewIfNeeded();
-await page.waitForTimeout(500);
-const before = await canvas.evaluate((c) => c.toDataURL().length + ":" + c.toDataURL().slice(-40));
-await page.waitForTimeout(400);
-const after = await canvas.evaluate((c) => c.toDataURL().length + ":" + c.toDataURL().slice(-40));
-ok("animation ticks", before !== after);
-await page.evaluate(() => window.scrollTo(0, 0));
-await page.waitForTimeout(300);
-
-await page.screenshot({ path: shot("01-hero-dark"), fullPage: false });
-
-await page.getByRole("button", { name: /Try sample text/i }).first().click();
-await page.waitForTimeout(300);
-const text = await page.locator("textarea").inputValue();
-ok("sample text fills transcript", text.includes("Say the thing"));
-await page.screenshot({ path: shot("02-studio-filled"), fullPage: true });
-
-// full pipeline through the vite proxy — upload audio → transcribe → generate speech
-const wavPath = "/tmp/verify-test.wav";
-if (real) {
-  const r = await fetch("http://localhost:5173/api/synthesize", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text: "Hello, this is a test of the local speech engine.", voice: "lessac", length_scale: 1 }),
-  });
-  fs.writeFileSync(wavPath, Buffer.from(await r.arrayBuffer()));
-} else {
-  const sr = 8000, n = sr;
-  const buf = Buffer.alloc(44 + n * 2);
-  buf.write("RIFF", 0); buf.writeUInt32LE(36 + n * 2, 4); buf.write("WAVE", 8);
-  buf.write("fmt ", 12); buf.writeUInt32LE(16, 16); buf.writeUInt16LE(1, 20); buf.writeUInt16LE(1, 22);
-  buf.writeUInt32LE(sr, 24); buf.writeUInt32LE(sr * 2, 28); buf.writeUInt16LE(2, 32); buf.writeUInt16LE(16, 34);
-  buf.write("data", 36); buf.writeUInt32LE(n * 2, 40);
-  for (let i = 0; i < n; i++) buf.writeInt16LE(Math.round(Math.sin((i / sr) * 2 * Math.PI * 440) * 12000), 44 + i * 2);
-  fs.writeFileSync(wavPath, buf);
-}
-await page.getByRole("tab", { name: /Upload file/i }).click();
-await page.setInputFiles("#capture input[type=file]", wavPath);
-await page.waitForTimeout(400);
-await page.locator("textarea").fill(""); // clean slate so the poll cannot read stale text
-await page.getByRole("button", { name: /Transcribe audio/i }).click();
-// poll the transcript up to 30s (real whisper may need model warm-up)
-let got = "";
-for (let i = 0; i < 60 && !(got = await page.locator("textarea").inputValue()).trim(); i++) await page.waitForTimeout(500);
-if (real) {
-  ok("real transcribe returns speech text", /hello,? this is a test of (a|the) local speech engine/i.test(got), got.slice(0, 60));
-} else {
-  ok("stub transcribe fills transcript", got.includes("stub transcription"), got.slice(0, 40));
-}
-await page.getByRole("button", { name: /Generate speech/i }).click();
-let played = false;
-for (let i = 0; i < 40 && !(played = await page.locator("#speech audio").isVisible()); i++) await page.waitForTimeout(500);
-ok("speech audio generated", played);
-ok("note honest", (await page.getByText(real ? /Your audio is ready/ : /Dummy tone generated/).count()) >= 1);
-ok("notice clutter removed", (await page.locator(".notice").count()) === 0);
-
-await page.getByRole("button", { name: "Light mode" }).first().click();
-await page.waitForTimeout(400);
-ok("light theme applied", (await page.locator("html").getAttribute("data-theme")) === "light");
-await page.screenshot({ path: shot("03-hero-light"), fullPage: false });
-await page.getByRole("button", { name: "Dark mode" }).first().click();
-
-await page.getByRole("tab", { name: /Upload file/i }).click();
-await page.waitForTimeout(250);
-ok("upload dropzone visible", await page.locator(".dropzone").isVisible());
-await page.getByRole("tab", { name: /Record audio/i }).click();
-
-// speech wave: present and genuinely animating (idle ambient motion)
+ok("page title describes Forma", (await page.title()).includes("Local Voice Studio"));
+ok("real-vs-stub status is honest", await page.locator(".model-status").innerText().then((t) => t.includes(real ? "LOCAL MODELS" : "DUMMY MODE")));
+ok("desktop side navigation has all destinations", (await page.locator(".sidebar-link").count()) === 5);
+ok("capture and transcript start on the studio page", (await page.locator("#capture").isVisible()) && (await page.locator("#transcript").isVisible()));
+ok("voice output is on the studio page", await page.locator("#speech").isVisible());
+ok("marketing sections are removed from the main page", (await page.locator(".arc-band,.marquee-mask,.bento-grid,footer").count()) === 0);
+ok("live animated audio wave renders", (await page.locator("#capture canvas[data-wave]").count()) === 1);
 const wave = page.locator("#capture canvas[data-wave]");
-ok("speech wave present", (await wave.count()) === 1);
-const w1 = await wave.evaluate((c) => c.toDataURL().slice(-80));
+const waveA = await wave.evaluate((canvas) => canvas.toDataURL());
+await page.waitForTimeout(260);
+const waveB = await wave.evaluate((canvas) => canvas.toDataURL());
+ok("idle wave animates", waveA !== waveB);
+await page.screenshot({ path: shot("08-redesign-desktop"), fullPage: true });
+
+await page.getByRole("button", { name: "Light mode" }).click();
+ok("light theme still works", (await page.locator("html").getAttribute("data-theme")) === "light");
+await page.getByRole("button", { name: "Dark mode" }).click();
+
+await page.locator(".sidebar-link").filter({ hasText: "Settings" }).click();
 await page.waitForTimeout(250);
-const w2 = await wave.evaluate((c) => c.toDataURL().slice(-80));
-ok("speech wave animated", w1 !== w2);
-ok("marquee rendered", (await page.locator(".animate-marquee").count()) >= 1);
-// traverse the page so scroll reveals fire, then assert real visibility
-await page.evaluate(async () => {
-  for (let y = 0; y <= document.body.scrollHeight; y += 400) {
-    window.scrollTo(0, y);
-    await new Promise((r) => setTimeout(r, 60));
-  }
+ok("Gemini settings has stable model choices", (await page.locator("#gemini-model option").count()) === 4);
+ok("key input does not expose a saved secret", (await page.locator("#gemini-key").getAttribute("type")) === "password");
+ok("model-pricing and privacy guidance are visible", (await page.getByText(/5,000 grounding requests/i).count()) > 0);
+await page.screenshot({ path: shot("10-settings"), fullPage: true });
+const settingsModel = await page.locator("#gemini-model").inputValue();
+await page.locator("#gemini-model").selectOption("gemini-3.8-flash");
+ok("user can switch model", (await page.locator("#gemini-model").inputValue()) === "gemini-3.8-flash");
+await page.locator("#gemini-model").selectOption(settingsModel);
+
+await page.locator(".sidebar-link").filter({ hasText: "Terms & privacy" }).click();
+ok("terms page is separate and visible", await page.getByRole("heading", { name: /Terms & privacy/i }).isVisible());
+ok("terms explain local audio and optional Gemini", (await page.getByText(/audio is not uploaded to Gemini/i).count()) > 0);
+await page.locator(".sidebar-link").filter({ hasText: "Voice search" }).click();
+ok("voice search is a separate page", await page.getByRole("heading", { name: /Ask the web/i }).isVisible());
+ok("search uses a typed query input", await page.getByLabel("Search query").isVisible());
+const geminiSettings = await (await fetch("http://localhost:5173/api/gemini/settings")).json();
+if (!geminiSettings.configured) {
+  ok("web search stays disabled until Gemini is configured", await page.getByRole("button", { name: /Search the web/i }).isDisabled());
+}
+
+await page.locator(".sidebar-link").filter({ hasText: "Voice studio" }).click();
+const transcript = page.getByLabel("Editable transcript");
+const historyText = "A readable local session that can be reopened and exported.";
+await transcript.fill(historyText);
+await page.waitForTimeout(400);
+await page.locator(".sidebar-link").filter({ hasText: "Session history" }).click();
+ok("session autosaves into readable history", (await page.getByText(historyText, { exact: false }).count()) > 0);
+ok("history supports reopening a transcript", await page.getByRole("button", { name: "Open in studio" }).isVisible());
+await page.getByRole("button", { name: "Open in studio" }).click();
+ok("history reopens transcript text", (await page.getByLabel("Editable transcript").inputValue()) === historyText);
+
+const formatSelect = page.locator("#transcript select[aria-label='Export format']");
+await formatSelect.selectOption("txt");
+const downloadPromise = page.waitForEvent("download");
+await page.getByRole("button", { name: "Export", exact: true }).click();
+const download = await downloadPromise;
+ok("transcript export produces a chosen file", download.suggestedFilename().endsWith(".txt"), download.suggestedFilename());
+page.once("dialog", (dialog) => dialog.accept());
+await page.getByRole("button", { name: /Restart session/i }).click();
+ok("restart clears the editor", (await page.getByLabel("Editable transcript").inputValue()) === "");
+await page.locator(".sidebar-link").filter({ hasText: "Session history" }).click();
+ok("restart kept the old session in history", (await page.getByText(historyText, { exact: false }).count()) > 0);
+page.once("dialog", (dialog) => dialog.accept());
+await page.getByRole("button", { name: "Clear all" }).click();
+ok("history can be cleared", await page.getByText("Your archive is ready").isVisible());
+
+// Mobile has no sidepane; the compact bottom navigation is the only navigation rail.
+const mobile = await browser.newPage({ viewport: { width: 390, height: 844 } });
+await mobile.goto("http://localhost:5173/", { waitUntil: "domcontentloaded" });
+await mobile.waitForTimeout(300);
+ok("mobile sidepane is removed", await mobile.locator(".sidebar").evaluate((el) => getComputedStyle(el).display === "none"));
+ok("mobile bottom navigation works", await mobile.locator(".mobile-nav").isVisible());
+ok("mobile layout has no horizontal overflow", await mobile.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth));
+await mobile.screenshot({ path: shot("09-redesign-mobile"), fullPage: false });
+await mobile.locator(".mobile-nav-link").filter({ hasText: "Settings" }).click();
+ok("mobile settings remains navigable", await mobile.getByRole("heading", { name: /^Settings/i }).isVisible());
+await mobile.close();
+
+// UI plumbing fixture only: this synthetic response is never shown by the app or saved as real search output.
+const searchTest = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+await searchTest.route("**/api/gemini/settings", (route) => route.fulfill({
+  status: 200,
+  contentType: "application/json",
+  body: JSON.stringify({ configured: true, vault_available: true, key_source: "credential-vault", model_default: "gemini-3.5-flash-lite" }),
+}));
+await searchTest.route("**/api/gemini/search", (route) => route.fulfill({
+  status: 200,
+  contentType: "application/json",
+  body: JSON.stringify({
+    text: "Playwright fixture answer [1].",
+    model: "gemini-3.5-flash-lite",
+    sources: [{ title: "Fixture source", uri: "https://example.com/fixture" }],
+    queries: ["fixture query"],
+    search_entry_point: '<div><a href="https://www.google.com/search?q=fixture">Fixture search suggestion</a></div>',
+  }),
+}));
+await searchTest.goto("http://localhost:5173/", { waitUntil: "domcontentloaded" });
+await searchTest.waitForTimeout(250);
+await searchTest.locator(".sidebar-link").filter({ hasText: "Voice search" }).click();
+await searchTest.getByLabel("Search query").fill("fixture query");
+await searchTest.getByRole("button", { name: "Search the web" }).click();
+await searchTest.getByText("Playwright fixture answer", { exact: false }).waitFor({ timeout: 5000 });
+ok("grounded UI fixture shows clickable citation marker", await searchTest.locator(".grounding-citation[href='#grounded-source-1']").isVisible());
+ok("grounded UI fixture renders source list", await searchTest.locator("#grounded-source-1").getByText("Fixture source").isVisible());
+ok("Google Search suggestion renders in its isolated widget", await searchTest.locator(".google-search-suggestions").evaluate((el) => el.shadowRoot?.textContent?.includes("Fixture search suggestion") ?? false));
+await searchTest.locator("select[aria-label='Export format']").selectOption("json");
+const resultDownloadPromise = searchTest.waitForEvent("download");
+await searchTest.getByRole("button", { name: "Export result" }).click();
+ok("search result can be exported", (await resultDownloadPromise).suggestedFilename().endsWith(".json"));
+await searchTest.locator(".sidebar-link").filter({ hasText: "Session history" }).click();
+ok("grounded results are not added to session history", (await searchTest.getByText("Playwright fixture answer", { exact: false }).count()) === 0);
+await searchTest.close();
+
+// End-to-end local audio round trip; no Gemini key/API is used by this test.
+const synth = await fetch("http://localhost:5173/api/synthesize", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ text: "Hello, this is a test of the local speech engine.", voice: "lessac", length_scale: 1 }),
 });
-await page.waitForTimeout(900);
-ok("bento features visible", await page.getByText("Runs on your machine").isVisible());
-ok("bento card visible", await page.getByText("Measured, not guessed").isVisible());
-await page.screenshot({ path: shot("04-full-dark"), fullPage: true });
+if (synth.ok) {
+  const wav1 = "/tmp/forma-verify-one.wav";
+  fs.writeFileSync(wav1, Buffer.from(await synth.arrayBuffer()));
+  await page.locator(".sidebar-link").filter({ hasText: "Voice studio" }).click();
+  await page.getByRole("tab", { name: "Upload" }).click();
+  await page.locator("#capture input[type=file]").setInputFiles(wav1);
+  await page.waitForFunction(() => {
+    const button = [...document.querySelectorAll("#capture button")].find((item) => item.textContent?.includes("Transcribe 1 new part"));
+    return Boolean(button && !button.hasAttribute("disabled"));
+  }, null, { timeout: 5000 });
+  await page.getByRole("button", { name: "Transcribe 1 new part" }).click();
+  let got = "";
+  for (let attempt = 0; attempt < 80 && !(got = await page.getByLabel("Editable transcript").inputValue()).trim(); attempt++) await page.waitForTimeout(500);
+  if (real) {
+    ok("local Whisper returns real speech text", /hello,? this is a test of (a|the) local speech engine/i.test(got), got.slice(0, 75));
+  } else {
+    ok("dummy speech stays explicitly labelled", got.includes("stub transcription"), got.slice(0, 50));
+  }
+  if (real) {
+    const synth2 = await fetch("http://localhost:5173/api/synthesize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "Add more words to this session.", voice: "lessac", length_scale: 1 }),
+    });
+    if (synth2.ok) {
+      fs.writeFileSync("/tmp/forma-verify-two.wav", Buffer.from(await synth2.arrayBuffer()));
+      await page.getByRole("button", { name: "Choose another audio file" }).click();
+      await page.locator("#capture input[type=file]").setInputFiles("/tmp/forma-verify-two.wav");
+      await page.waitForFunction(() => [...document.querySelectorAll("#capture button")].some((item) => item.textContent?.includes("Transcribe 1 new part") && !item.hasAttribute("disabled")), null, { timeout: 5000 });
+      await page.getByRole("button", { name: "Transcribe 1 new part" }).click();
+      let appended = "";
+      for (let attempt = 0; attempt < 80; attempt++) {
+        appended = await page.getByLabel("Editable transcript").inputValue();
+        if (appended.length > got.length) break;
+        await page.waitForTimeout(500);
+      }
+      ok("second audio part appends instead of replacing", appended.length > got.length, appended.slice(-60));
+    }
+  }
+} else {
+  ok("local Piper endpoint responds", false, `HTTP ${synth.status}`);
+}
 
 console.log(checks.join("\n"));
-console.log("console errors:", errors.length ? errors.join(" | ") : "none");
+console.log("console/page errors:", errors.length ? errors.join(" | ") : "none");
 await browser.close();
-process.exit(checks.some((c) => c.startsWith("FAIL")) || errors.length ? 1 : 0);
+process.exit(checks.some((check) => check.startsWith("FAIL")) || errors.length ? 1 : 0);
