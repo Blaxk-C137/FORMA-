@@ -16,12 +16,8 @@ from gemini import CredentialVaultUnavailable, GeminiApiError, GeminiError, get_
 from gemini import refurbish as gemini_refurbish
 from gemini import remove_key as remove_gemini_key
 from gemini import save_key as save_gemini_key
-from gemini import search as gemini_search
-from google_agent_search import GoogleAgentSearchApiError, GoogleAgentSearchError
-from google_agent_search import get_settings as agent_search_settings
-from google_agent_search import remove_settings as remove_agent_search_settings
-from google_agent_search import save_settings as save_agent_search_settings
-from google_agent_search import search as direct_google_search
+from gemini import summarize_search_results as gemini_summarize_search_results
+from tavily_search import TavilySearchApiError, TavilySearchError, search as tavily_search
 from stt import stt
 from tts import DEFAULT_VOICE, tts
 
@@ -44,17 +40,14 @@ def _gemini_error(exc: GeminiError) -> JSONResponse:
     return JSONResponse({"detail": str(exc)}, status_code=code)
 
 
-def _agent_search_error(exc: Exception) -> JSONResponse:
-    if isinstance(exc, GoogleAgentSearchApiError):
+def _tavily_error(exc: TavilySearchError) -> JSONResponse:
+    if isinstance(exc, TavilySearchApiError):
         return JSONResponse({
             "detail": str(exc),
             "upstream_status": exc.status_code,
-            "google_status": exc.google_status,
             "retry_after_seconds": exc.retry_after,
-            "quota_metrics": exc.quota_metrics,
         }, status_code=exc.status_code)
-    code = 503 if isinstance(exc, CredentialVaultUnavailable) else 400
-    return JSONResponse({"detail": str(exc)}, status_code=code)
+    return JSONResponse({"detail": str(exc)}, status_code=503 if "reach Tavily" in str(exc) else 400)
 
 
 @app.on_event("startup")
@@ -144,46 +137,24 @@ def refurbish_text(payload: dict):
         return _gemini_error(exc)
 
 
-@app.post("/api/gemini/search")
-def voice_web_search(payload: dict):
+@app.post("/api/gemini/summarize-search")
+def summarize_tavily_results(payload: dict):
     try:
-        return gemini_search(str(payload.get("query", "")), str(payload.get("model", "")))
+        return gemini_summarize_search_results(
+            str(payload.get("query", "")),
+            payload.get("results", []),
+            str(payload.get("model", "")),
+        )
     except GeminiError as exc:
         return _gemini_error(exc)
 
 
-@app.get("/api/agent-search/settings")
-def get_agent_search_settings():
-    return agent_search_settings()
-
-
-@app.put("/api/agent-search/settings")
-def put_agent_search_settings(payload: dict):
+@app.post("/api/tavily/search")
+def tavily_web_search(payload: dict):
     try:
-        return save_agent_search_settings(
-            str(payload.get("api_key", "")),
-            str(payload.get("project_id", "")),
-            str(payload.get("engine_id", "")),
-            str(payload.get("location", "global")),
-        )
-    except (GoogleAgentSearchError, CredentialVaultUnavailable) as exc:
-        return _agent_search_error(exc)
-
-
-@app.delete("/api/agent-search/settings")
-def delete_agent_search_settings():
-    try:
-        return remove_agent_search_settings()
-    except (GoogleAgentSearchError, CredentialVaultUnavailable) as exc:
-        return _agent_search_error(exc)
-
-
-@app.post("/api/agent-search/search")
-def agent_search_query(payload: dict):
-    try:
-        return direct_google_search(str(payload.get("query", "")))
-    except (GoogleAgentSearchError, CredentialVaultUnavailable) as exc:
-        return _agent_search_error(exc)
+        return tavily_search(str(payload.get("query", "")))
+    except TavilySearchError as exc:
+        return _tavily_error(exc)
 
 
 if __name__ == "__main__":

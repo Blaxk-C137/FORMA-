@@ -1,8 +1,8 @@
 # Forma — Local Voice Studio
 
-A local-first desktop web app for transcribing, refining, searching, and speaking text. Record or upload audio, transcribe it with **Whisper Tiny**, optionally refurbish text or search the web with **Gemini**, then speak it with **Piper VITS**.
+A local-first desktop web app for transcribing, refining, searching, and speaking text. Record or upload audio, transcribe it with **Whisper Tiny**, search the web with Tavily's **free keyless mode**, optionally summarize results or refurbish text with **Gemini**, then speak it with **Piper VITS**.
 
-Speech audio stays on the device. Gemini and direct Google Agent Search are optional; their cloud requests happen only after the user explicitly clicks the relevant action.
+Speech audio stays on the device. Tavily and Gemini are optional; their cloud requests happen only after the user explicitly clicks the relevant action.
 
 ## Quick start
 
@@ -19,7 +19,7 @@ Open <http://localhost:5173>. `npm install` provisions the Python speech backend
 - Node.js 20+
 - Python 3.10–3.12 recommended and available on PATH (`py -3` on Windows). Python 3.13 was exercised in the development environment; Windows compatibility may depend on current PyTorch/Piper wheels.
 - About 700 MB of one-time model/runtime downloads, plus Node and Python development dependencies. Model weights live outside the repository in `~/.cache/forma/models` by default.
-- Internet only for installation/model downloads and optional Gemini requests. Local Whisper/Piper speech works offline after setup.
+- Internet for installation/model downloads and when the user explicitly chooses Tavily search or Gemini features. Local Whisper/Piper speech works offline after setup.
 
 If Python is missing, npm installation remains successful and speech falls back to clearly labelled **DUMMY MODE**. Dummy output is never presented as real speech recognition.
 
@@ -39,42 +39,41 @@ The real backend is started automatically by Vite. To skip ML setup for UI-only 
 - **Append segments:** Each microphone recording stops safely at two minutes. Choose **Add more audio** to record another part; newly transcribed words append to the existing transcript.
 - **Restart session:** Saves the transcript in History, then clears the editor and current audio.
 - **Refurbish with Gemini:** Generates a suggestion on click. Review it, export it, apply it, or discard it; the original text is not silently replaced.
-- **Switchable voice search:** Speak a query; local Whisper turns it into editable text. Choose Gemini's Interactions API with Google Search grounding (`store: false`) for an AI answer with parsed citations, or Google Agent Search for clean title/URL/snippet cards from the public websites indexed by the user's Cloud app. Search results are temporary in Forma and exportable; neither provider's results enter History. Direct Agent Search is configured separately and is not unrestricted Google Web Search.
+- **Switchable voice search:** Speak a query; local Whisper turns it into editable text. Choose free, rate-limited Tavily keyless search for clean title/URL/snippet cards, or optionally ask Gemini to summarize those same results using ordinary text generation (no Google Search grounding). Tavily results are temporary in Forma and exportable; they and Gemini summaries are not added to History.
 - **Session history:** Search, reopen, export, delete individual sessions, or clear all. Transcript text and metadata are saved in this browser only; audio is not archived.
 - **Export:** Transcript, Gemini suggestion, individual search result, or session history in plain text (`.txt`), Markdown (`.md`), JSON, CSV, HTML, or print/save as PDF. Generated Piper speech can be downloaded as WAV. No timestamps are fabricated, so no SRT export is offered.
 - Light and dark themes. Desktop has labelled side navigation; mobile uses a compact bottom navigation bar and no sidepane.
 
 ## Search providers, keys and privacy
 
-Gemini and Google Agent Search are optional; Whisper/Piper remain local whether or not a cloud key is configured.
+Tavily provides web results without an API key; Gemini is optional for refurbishment and result summaries. Whisper/Piper remain local whether or not Gemini is configured.
 
-- Enter a key in **Settings → Gemini API key**. The local Python backend verifies it with Google's model-list endpoint, then saves it in the OS credential vault (Windows Credential Manager on Windows). The key is never returned to the UI or saved in browser storage. `FORMA_GEMINI_API_KEY` is also supported for managed installations.
-- **Google Agent Search** needs its own Google Cloud API key, project ID, app/engine ID, and location. Restrict the key to Discovery Engine, but do not add an HTTP-referrer restriction: SearchLite is called by Forma's local backend. Settings stores the secret in the same OS vault; the app ID and location are configuration only. Environment-managed installs can set `FORMA_AGENT_SEARCH_API_KEY`, `FORMA_AGENT_SEARCH_PROJECT_ID`, `FORMA_AGENT_SEARCH_ENGINE_ID`, and optional `FORMA_AGENT_SEARCH_LOCATION` (`global`, `us`, or `eu`). The Agent Search key is never returned to the browser.
+- **Tavily keyless search** sends only the query to `https://api.tavily.com/search` after the user clicks Search, using Tavily's documented free, no-account, no-key mode. It returns structured result titles, URLs, and snippets; it is rate-limited and not guaranteed to be available. Tavily's [privacy policy](https://www.tavily.com/privacy) says query data may be retained as needed to provide and improve its services (it does not give a fixed number of days) and may be shared with third-party search-index providers in limited retrieval cases. Avoid personal or sensitive queries. Forma does not enable a paid plan or collect/store a Tavily key.
+- **Gemini key** is entered in Settings and verified by the local Python backend, then saved in the OS credential vault (Windows Credential Manager on Windows). It is never returned to the UI or stored in browser storage. `FORMA_GEMINI_API_KEY` is supported for managed installs.
 - **Refurbishment** sends transcript text only when its button is clicked. The suggestion is separate and requires review.
-- **Search** always recognizes the microphone locally; audio is never uploaded. Only the query text is sent to the selected Google provider after the user clicks Search. Gemini-grounded answers are parsed from citation annotations; direct Agent Search uses Google's structured response fields and searches the public websites in the configured app.
-- Upstream HTTP 429s retain Google's status, quota metric, and retry hint where supplied. Gemini rate limits are per project/model and grounding can have an independent quota; compare the exact project and metric with Google's [rate-limit guide](https://ai.google.dev/gemini-api/docs/rate-limits). Direct Agent Search has separate Google Cloud quotas and billing.
-- Google's Search-grounding terms state prompts, context, and outputs may be stored for 30 days even though Forma sets Interactions API `store: false`. Grounded answers and associated Search Suggestions are displayed together. Neither provider's results are saved to Forma History; users can export them individually.
+- **Gemini summary mode** first retrieves Tavily results, then sends the query plus up to eight returned titles, HTTPS URLs, and snippets (not full pages) to Gemini's normal text-generation endpoint after the user chooses the mode and clicks Search. Forma instructs Gemini to use only the supplied excerpts and cite the displayed Tavily sources. This consumes ordinary Gemini text tokens and project/model quotas; charges may apply. The feature does not invoke Google's separately priced Search-grounding or Google Agent Search APIs.
+- Search audio is never uploaded. Search results and summaries are temporary and exportable, not stored in Forma History.
+- Google's [unpaid-tier terms](https://ai.google.dev/gemini-api/terms#unpaid-services) allow submitted content and responses to be used to provide, improve, and develop Google products, including possible human review; [paid-tier terms](https://ai.google.dev/gemini-api/terms#paid-services) exclude product-improvement use. Google's [abuse-monitoring policy](https://ai.google.dev/gemini-api/docs/usage-policies) currently states that prompts, context, and outputs are retained for 55 days for safety enforcement. Review Google's linked data-use/retention policies before sending sensitive content.
+- Gemini HTTP 429s retain Google's status, quota metric, and retry hint where supplied; check the exact project and model against Google's [rate-limit guide](https://ai.google.dev/gemini-api/docs/rate-limits). Tavily keyless limits are separate; wait and retry later, or use Tavily's optional free API-key plan (1,000 credits/month, no card). Forma itself remains keyless.
 
-The in-app **Terms & privacy** page summarizes the local/cloud boundary and links to Google's current terms.
+The in-app **Terms & privacy** page summarizes these local/cloud boundaries and links to current provider terms.
 
 ## Gemini models and pricing
 
-The model picker includes stable text models that currently support text generation and Google Search grounding; preview-only and access-restricted legacy entries are omitted. **Gemini 3.5 Flash-Lite** is the fast, low-latency default; **Gemini 3.1 Flash-Lite** has the lowest text-token rates in the list. Availability, free quotas, and billing eligibility can still vary by Google project, account, region, and current limits. Nigeria appears in Google's published [available regions](https://ai.google.dev/gemini-api/docs/available-regions).
+The model picker includes stable text-generation models; preview-only and access-restricted legacy entries are omitted. Forma uses them for optional text refurbishment and Tavily-result summaries, never with Google's Search-grounding tool. **Gemini 3.5 Flash-Lite** is the fast, low-latency default; **Gemini 3.1 Flash-Lite** has the lowest text-token rates in the list. Availability, free quotas, and billing eligibility can vary by project, account, region, and current limits. Nigeria appears in Google's published [available regions](https://ai.google.dev/gemini-api/docs/available-regions).
 
 Standard paid-tier rates below are from Google's pricing page, checked **10 October 2026**, in USD per million tokens. Free-tier text input/output is listed as free for these models, subject to quotas and Google's free-tier data-use terms.
 
-| Stable model | Standard paid input | Standard paid output | Search grounding |
-|---|---:|---:|---|
-| `gemini-3.1-flash-lite` | $0.25 / 1M text input tokens | $1.50 / 1M output tokens | Supported |
-| `gemini-3.5-flash-lite` | $0.30 / 1M input tokens | $2.50 / 1M output tokens | Supported |
-| `gemini-3.6-flash` | $0.75 through 31 Dec 2026; $1.50 from 1 Jan 2027 | $3.75 through 31 Dec 2026; $7.50 from 1 Jan 2027 | Supported |
-| `gemini-3.8-flash` | $0.75 through 31 Dec 2026; $1.50 from 1 Jan 2027 | $3.75 through 31 Dec 2026; $7.50 from 1 Jan 2027 | Supported |
+| Stable model | Standard paid input | Standard paid output |
+|---|---:|---:|
+| `gemini-3.1-flash-lite` | $0.25 / 1M text input tokens | $1.50 / 1M output tokens |
+| `gemini-3.5-flash-lite` | $0.30 / 1M input tokens | $2.50 / 1M output tokens |
+| `gemini-3.6-flash` | $0.75 through 31 Dec 2026; $1.50 from 1 Jan 2027 | $3.75 through 31 Dec 2026; $7.50 from 1 Jan 2027 |
+| `gemini-3.8-flash` | $0.75 through 31 Dec 2026; $1.50 from 1 Jan 2027 | $3.75 through 31 Dec 2026; $7.50 from 1 Jan 2027 |
 
-**Google Search grounding:** unavailable through the Gemini API free tier. For paid-tier projects, Google currently lists 5,000 grounding search requests per month shared across Gemini 3 and newer models, then **$14 per 1,000 requests**. One prompt may trigger multiple search requests; standard Gemini token charges can also apply. Pricing changes, so check the live [pricing](https://ai.google.dev/gemini-api/docs/pricing) and [model availability](https://ai.google.dev/gemini-api/docs/models) pages.
+Forma's search mode uses free, rate-limited Tavily for retrieval. Optional Gemini summaries use ordinary Gemini text-generation token rates. Google's separately priced Search-grounding tool is **not invoked**; its charges do not apply to Tavily searches performed by Forma. Check Google's live [pricing](https://ai.google.dev/gemini-api/docs/pricing) and [model availability](https://ai.google.dev/gemini-api/docs/models) pages before use.
 
-**Google Agent Search:** the direct result-card provider searches only the public-site data store attached to the configured Cloud app. Google's pricing page currently advertises a 10,000-query/month free trial per account and lists Standard Search at **$1.50 per 1,000 queries**; indexing/storage and optional features can cost extra. See the live [Agent Search pricing](https://cloud.google.com/generative-ai-app-builder/pricing) and [searchLite API guide](https://docs.cloud.google.com/generative-ai-app-builder/docs/preview-search-results).
-
-Google's published free-tier terms say submitted prompts/outputs may be used to improve Google products; paid-tier inputs/outputs are not used for that purpose. Use Settings to switch stable models, and review Google’s current terms/pricing before sending sensitive content or enabling search.
+Google's unpaid-tier terms allow submitted content and responses to be used to provide, improve, and develop Google products, including possible human review; paid-tier content is not used for product improvement. Google's abuse-monitoring policy currently states that prompts, context, and outputs are retained for 55 days for safety enforcement. Use Settings to choose stable models, and review Google's current terms, data-use, retention, and pricing policies before sending sensitive content.
 
 ## API
 
@@ -89,11 +88,8 @@ The Vite server automatically proxies `/api/*` to the local FastAPI service on p
 | `POST /api/gemini/key` | Verify key, then store in OS credential vault |
 | `DELETE /api/gemini/key` | Remove saved key from vault |
 | `POST /api/gemini/refurbish` | Text improvement suggestion with selected stable model |
-| `POST /api/gemini/search` | Gemini Interactions API Google Search grounding, parsed answer citations, sources, queries, and Search Suggestions (`store: false`) |
-| `GET /api/agent-search/settings` | Direct Google Agent Search configuration status (never returns the key) |
-| `PUT /api/agent-search/settings` | Save Cloud project/app settings and key in the OS credential vault |
-| `DELETE /api/agent-search/settings` | Remove saved Agent Search credentials/configuration |
-| `POST /api/agent-search/search` | Structured Google Agent Search result cards from the configured public-site index |
+| `POST /api/tavily/search` | Free keyless Tavily web results, parsed into clean HTTPS title/URL/snippet cards |
+| `POST /api/gemini/summarize-search` | Optional Gemini text-only summary of Tavily query plus result titles, HTTPS URLs, and snippets; no Search grounding tool |
 
 The audio pipeline is ffmpeg-free: browser capture and upload decoding produce 16 kHz mono WAV for the local Whisper API.
 
@@ -106,10 +102,6 @@ The audio pipeline is ffmpeg-free: browser capture and upload decoding produce 1
 | `FORMA_TTS_DIR` | Piper voice directory |
 | `FORMA_SKIP_ML=1` | Skip ML provisioning during `npm install` |
 | `FORMA_GEMINI_API_KEY` | Optional environment-managed Gemini key |
-| `FORMA_AGENT_SEARCH_API_KEY` | Optional environment-managed Agent Search API key |
-| `FORMA_AGENT_SEARCH_PROJECT_ID` | Google Cloud project ID for Agent Search |
-| `FORMA_AGENT_SEARCH_ENGINE_ID` | Agent Search app/engine ID |
-| `FORMA_AGENT_SEARCH_LOCATION` | Agent Search location: `global`, `us`, or `eu` (default `global`) |
 | `FORMA_ML_PORT` | Local FastAPI port (default `8787`) |
 | `FORMA_USE_SYSTEM_PYTHON=1` | Allow the Vite bridge to use an ambient Python with FastAPI installed |
 
@@ -126,16 +118,16 @@ node scripts/verify-mic.mjs
 python ../backend/verify_search.py
 ```
 
-The browser suite checks the real Piper→Whisper round trip when the backend is ready (otherwise it checks the explicitly labelled dummy result), plus navigation, exports, history, and synthetic Gemini success/429 UI fixtures that make no real API request. Backend parser fixtures cover Gemini citation annotations, quota errors, and clean Agent Search result parsing without calling Google. Mic tests use Playwright's fake microphone. Model outputs can vary, so transcription checks use tolerant text matching.
+The browser suite checks the real Piper→Whisper round trip when the backend is ready (otherwise it checks the explicitly labelled dummy result), plus navigation, exports, history, synthetic Tavily/Gemini summary results, Gemini 429 handling, and the free-search-without-Gemini behavior. Backend fixtures cover Tavily keyless request shape/rate-limit errors, ordinary Gemini `generateContent` without grounding tools, and summaries from supplied snippets without contacting either service. Mic tests use Playwright's fake microphone. Model outputs can vary, so transcription checks use tolerant text matching.
 
 ## Project layout
 
 ```
-backend/                   FastAPI services: Whisper, Piper, Gemini, Google Agent Search
+backend/                   FastAPI services: Whisper, Piper, Gemini, Tavily keyless search
 frontend/src/App.tsx        Page shell, studio workflow, history/session state
 frontend/src/pages/         Voice search, session history, Settings, Terms & privacy
 frontend/src/components/    Capture, transcript, output, export components
-frontend/src/lib/            WAV, export, history, Gemini and Agent Search API helpers
+frontend/src/lib/            WAV, export, history, Gemini and Tavily API helpers
 frontend/server/             Vite ML bridge + labelled stub API
 frontend/scripts/             ML setup and Playwright checks
 threeui/predictive-arc.json   Registered Predictive Arc bundle reference
