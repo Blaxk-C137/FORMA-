@@ -12,11 +12,16 @@ import time
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import JSONResponse, Response
 
-from gemini import CredentialVaultUnavailable, GeminiError, get_settings as gemini_settings
+from gemini import CredentialVaultUnavailable, GeminiApiError, GeminiError, get_settings as gemini_settings
 from gemini import refurbish as gemini_refurbish
 from gemini import remove_key as remove_gemini_key
 from gemini import save_key as save_gemini_key
 from gemini import search as gemini_search
+from google_agent_search import GoogleAgentSearchApiError, GoogleAgentSearchError
+from google_agent_search import get_settings as agent_search_settings
+from google_agent_search import remove_settings as remove_agent_search_settings
+from google_agent_search import save_settings as save_agent_search_settings
+from google_agent_search import search as direct_google_search
 from stt import stt
 from tts import DEFAULT_VOICE, tts
 
@@ -26,6 +31,28 @@ app = FastAPI(title="Forma local voice backend")
 
 
 def _gemini_error(exc: GeminiError) -> JSONResponse:
+    if isinstance(exc, GeminiApiError):
+        return JSONResponse({
+            "detail": str(exc),
+            "upstream_status": exc.status_code,
+            "google_status": exc.google_status,
+            "google_code": exc.google_code,
+            "retry_after_seconds": exc.retry_after,
+            "quota_metrics": exc.quota_metrics,
+        }, status_code=exc.status_code)
+    code = 503 if isinstance(exc, CredentialVaultUnavailable) else 400
+    return JSONResponse({"detail": str(exc)}, status_code=code)
+
+
+def _agent_search_error(exc: Exception) -> JSONResponse:
+    if isinstance(exc, GoogleAgentSearchApiError):
+        return JSONResponse({
+            "detail": str(exc),
+            "upstream_status": exc.status_code,
+            "google_status": exc.google_status,
+            "retry_after_seconds": exc.retry_after,
+            "quota_metrics": exc.quota_metrics,
+        }, status_code=exc.status_code)
     code = 503 if isinstance(exc, CredentialVaultUnavailable) else 400
     return JSONResponse({"detail": str(exc)}, status_code=code)
 
@@ -123,6 +150,40 @@ def voice_web_search(payload: dict):
         return gemini_search(str(payload.get("query", "")), str(payload.get("model", "")))
     except GeminiError as exc:
         return _gemini_error(exc)
+
+
+@app.get("/api/agent-search/settings")
+def get_agent_search_settings():
+    return agent_search_settings()
+
+
+@app.put("/api/agent-search/settings")
+def put_agent_search_settings(payload: dict):
+    try:
+        return save_agent_search_settings(
+            str(payload.get("api_key", "")),
+            str(payload.get("project_id", "")),
+            str(payload.get("engine_id", "")),
+            str(payload.get("location", "global")),
+        )
+    except (GoogleAgentSearchError, CredentialVaultUnavailable) as exc:
+        return _agent_search_error(exc)
+
+
+@app.delete("/api/agent-search/settings")
+def delete_agent_search_settings():
+    try:
+        return remove_agent_search_settings()
+    except (GoogleAgentSearchError, CredentialVaultUnavailable) as exc:
+        return _agent_search_error(exc)
+
+
+@app.post("/api/agent-search/search")
+def agent_search_query(payload: dict):
+    try:
+        return direct_google_search(str(payload.get("query", "")))
+    except (GoogleAgentSearchError, CredentialVaultUnavailable) as exc:
+        return _agent_search_error(exc)
 
 
 if __name__ == "__main__":

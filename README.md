@@ -2,7 +2,7 @@
 
 A local-first desktop web app for transcribing, refining, searching, and speaking text. Record or upload audio, transcribe it with **Whisper Tiny**, optionally refurbish text or search the web with **Gemini**, then speak it with **Piper VITS**.
 
-Speech audio stays on the device. Gemini is optional and is called only when the user explicitly clicks a Gemini action.
+Speech audio stays on the device. Gemini and direct Google Agent Search are optional; their cloud requests happen only after the user explicitly clicks the relevant action.
 
 ## Quick start
 
@@ -39,21 +39,21 @@ The real backend is started automatically by Vite. To skip ML setup for UI-only 
 - **Append segments:** Each microphone recording stops safely at two minutes. Choose **Add more audio** to record another part; newly transcribed words append to the existing transcript.
 - **Restart session:** Saves the transcript in History, then clears the editor and current audio.
 - **Refurbish with Gemini:** Generates a suggestion on click. Review it, export it, apply it, or discard it; the original text is not silently replaced.
-- **Voice web search:** Speak a query; local Whisper turns it into editable text. Only after **Search the web** is clicked does the query go to Gemini with Google Search grounding. The result is cited and can be exported. Search answers are deliberately not placed in History.
+- **Switchable voice search:** Speak a query; local Whisper turns it into editable text. Choose Gemini's Interactions API with Google Search grounding (`store: false`) for an AI answer with parsed citations, or Google Agent Search for clean title/URL/snippet cards from the public websites indexed by the user's Cloud app. Search results are temporary in Forma and exportable; neither provider's results enter History. Direct Agent Search is configured separately and is not unrestricted Google Web Search.
 - **Session history:** Search, reopen, export, delete individual sessions, or clear all. Transcript text and metadata are saved in this browser only; audio is not archived.
 - **Export:** Transcript, Gemini suggestion, individual search result, or session history in plain text (`.txt`), Markdown (`.md`), JSON, CSV, HTML, or print/save as PDF. Generated Piper speech can be downloaded as WAV. No timestamps are fabricated, so no SRT export is offered.
 - Light and dark themes. Desktop has labelled side navigation; mobile uses a compact bottom navigation bar and no sidepane.
 
-## Gemini key and privacy
+## Search providers, keys and privacy
 
-Gemini is optional; Whisper/Piper remain local whether or not a key is configured.
+Gemini and Google Agent Search are optional; Whisper/Piper remain local whether or not a cloud key is configured.
 
-- Enter a key in **Settings → Gemini API key**. Forma verifies it with Google's model-list endpoint, then the local Python backend saves it in the OS credential vault (Windows Credential Manager on Windows). The key is never returned to the UI or saved in browser local storage. Remove/replace it from Settings.
-- An environment-managed key is also supported with `FORMA_GEMINI_API_KEY`.
-- **Refurbishment** sends the current transcript text to Google only when its button is clicked. The app displays a separate suggestion for review.
-- **Voice web search** records and recognizes speech locally; only the transcribed query text is sent to Google after the user clicks Search. The microphone audio is not uploaded to Gemini.
-- API-key use is tied to the user's Google project, quotas, tier, and potential charges. Review the current [Gemini API terms](https://ai.google.dev/gemini-api/terms) and [privacy/data-use rules](https://ai.google.dev/gemini-api/terms#data-use-unpaid) before sending sensitive text.
-- Google's terms for Search grounding state that prompts, context, and outputs may be stored for 30 days. Search-grounded responses and their associated Search Suggestions are shown together. Forma does not automatically save grounded results; users may export an individual displayed result.
+- Enter a key in **Settings → Gemini API key**. The local Python backend verifies it with Google's model-list endpoint, then saves it in the OS credential vault (Windows Credential Manager on Windows). The key is never returned to the UI or saved in browser storage. `FORMA_GEMINI_API_KEY` is also supported for managed installations.
+- **Google Agent Search** needs its own Google Cloud API key, project ID, app/engine ID, and location. Restrict the key to Discovery Engine, but do not add an HTTP-referrer restriction: SearchLite is called by Forma's local backend. Settings stores the secret in the same OS vault; the app ID and location are configuration only. Environment-managed installs can set `FORMA_AGENT_SEARCH_API_KEY`, `FORMA_AGENT_SEARCH_PROJECT_ID`, `FORMA_AGENT_SEARCH_ENGINE_ID`, and optional `FORMA_AGENT_SEARCH_LOCATION` (`global`, `us`, or `eu`). The Agent Search key is never returned to the browser.
+- **Refurbishment** sends transcript text only when its button is clicked. The suggestion is separate and requires review.
+- **Search** always recognizes the microphone locally; audio is never uploaded. Only the query text is sent to the selected Google provider after the user clicks Search. Gemini-grounded answers are parsed from citation annotations; direct Agent Search uses Google's structured response fields and searches the public websites in the configured app.
+- Upstream HTTP 429s retain Google's status, quota metric, and retry hint where supplied. Gemini rate limits are per project/model and grounding can have an independent quota; compare the exact project and metric with Google's [rate-limit guide](https://ai.google.dev/gemini-api/docs/rate-limits). Direct Agent Search has separate Google Cloud quotas and billing.
+- Google's Search-grounding terms state prompts, context, and outputs may be stored for 30 days even though Forma sets Interactions API `store: false`. Grounded answers and associated Search Suggestions are displayed together. Neither provider's results are saved to Forma History; users can export them individually.
 
 The in-app **Terms & privacy** page summarizes the local/cloud boundary and links to Google's current terms.
 
@@ -72,11 +72,13 @@ Standard paid-tier rates below are from Google's pricing page, checked **10 Octo
 
 **Google Search grounding:** unavailable through the Gemini API free tier. For paid-tier projects, Google currently lists 5,000 grounding search requests per month shared across Gemini 3 and newer models, then **$14 per 1,000 requests**. One prompt may trigger multiple search requests; standard Gemini token charges can also apply. Pricing changes, so check the live [pricing](https://ai.google.dev/gemini-api/docs/pricing) and [model availability](https://ai.google.dev/gemini-api/docs/models) pages.
 
+**Google Agent Search:** the direct result-card provider searches only the public-site data store attached to the configured Cloud app. Google's pricing page currently advertises a 10,000-query/month free trial per account and lists Standard Search at **$1.50 per 1,000 queries**; indexing/storage and optional features can cost extra. See the live [Agent Search pricing](https://cloud.google.com/generative-ai-app-builder/pricing) and [searchLite API guide](https://docs.cloud.google.com/generative-ai-app-builder/docs/preview-search-results).
+
 Google's published free-tier terms say submitted prompts/outputs may be used to improve Google products; paid-tier inputs/outputs are not used for that purpose. Use Settings to switch stable models, and review Google’s current terms/pricing before sending sensitive content or enabling search.
 
 ## API
 
-The Vite server automatically proxies `/api/*` to the local FastAPI service on port 8787. When the ML backend is unavailable, speech endpoints use the clearly labelled stub; Gemini endpoints return an honest setup error.
+The Vite server automatically proxies `/api/*` to the local FastAPI service on port 8787. The UI binds to loopback by default so saved API credentials are not exposed to the LAN; the Python backend also stays loopback-only and has CORS disabled. Arena preview deployments explicitly opt into their proxy host with `FORMA_PREVIEW_MODE=1`. When the ML backend is unavailable, speech endpoints use the clearly labelled stub; cloud endpoints return an honest setup error.
 
 | Endpoint | Purpose |
 |---|---|
@@ -87,7 +89,11 @@ The Vite server automatically proxies `/api/*` to the local FastAPI service on p
 | `POST /api/gemini/key` | Verify key, then store in OS credential vault |
 | `DELETE /api/gemini/key` | Remove saved key from vault |
 | `POST /api/gemini/refurbish` | Text improvement suggestion with selected stable model |
-| `POST /api/gemini/search` | Grounded web answer, sources, queries, and Google Search Suggestions |
+| `POST /api/gemini/search` | Gemini Interactions API Google Search grounding, parsed answer citations, sources, queries, and Search Suggestions (`store: false`) |
+| `GET /api/agent-search/settings` | Direct Google Agent Search configuration status (never returns the key) |
+| `PUT /api/agent-search/settings` | Save Cloud project/app settings and key in the OS credential vault |
+| `DELETE /api/agent-search/settings` | Remove saved Agent Search credentials/configuration |
+| `POST /api/agent-search/search` | Structured Google Agent Search result cards from the configured public-site index |
 
 The audio pipeline is ffmpeg-free: browser capture and upload decoding produce 16 kHz mono WAV for the local Whisper API.
 
@@ -100,6 +106,10 @@ The audio pipeline is ffmpeg-free: browser capture and upload decoding produce 1
 | `FORMA_TTS_DIR` | Piper voice directory |
 | `FORMA_SKIP_ML=1` | Skip ML provisioning during `npm install` |
 | `FORMA_GEMINI_API_KEY` | Optional environment-managed Gemini key |
+| `FORMA_AGENT_SEARCH_API_KEY` | Optional environment-managed Agent Search API key |
+| `FORMA_AGENT_SEARCH_PROJECT_ID` | Google Cloud project ID for Agent Search |
+| `FORMA_AGENT_SEARCH_ENGINE_ID` | Agent Search app/engine ID |
+| `FORMA_AGENT_SEARCH_LOCATION` | Agent Search location: `global`, `us`, or `eu` (default `global`) |
 | `FORMA_ML_PORT` | Local FastAPI port (default `8787`) |
 | `FORMA_USE_SYSTEM_PYTHON=1` | Allow the Vite bridge to use an ambient Python with FastAPI installed |
 
@@ -113,18 +123,19 @@ From `frontend/`:
 npm run build
 node scripts/verify.mjs
 node scripts/verify-mic.mjs
+python ../backend/verify_search.py
 ```
 
-The browser suite checks the real Piper→Whisper round trip when the backend is ready (otherwise it checks the explicitly labelled dummy result), plus navigation, exports, history, and a synthetic Gemini UI fixture that makes no real API request. Mic tests use Playwright's fake microphone. Model outputs can vary, so transcription checks use tolerant text matching.
+The browser suite checks the real Piper→Whisper round trip when the backend is ready (otherwise it checks the explicitly labelled dummy result), plus navigation, exports, history, and synthetic Gemini success/429 UI fixtures that make no real API request. Backend parser fixtures cover Gemini citation annotations, quota errors, and clean Agent Search result parsing without calling Google. Mic tests use Playwright's fake microphone. Model outputs can vary, so transcription checks use tolerant text matching.
 
 ## Project layout
 
 ```
-backend/                   FastAPI services: Whisper, Piper, Gemini, download_models.py
+backend/                   FastAPI services: Whisper, Piper, Gemini, Google Agent Search
 frontend/src/App.tsx        Page shell, studio workflow, history/session state
 frontend/src/pages/         Voice search, session history, Settings, Terms & privacy
 frontend/src/components/    Capture, transcript, output, export components
-frontend/src/lib/            WAV, export, history, Gemini model/API helpers
+frontend/src/lib/            WAV, export, history, Gemini and Agent Search API helpers
 frontend/server/             Vite ML bridge + labelled stub API
 frontend/scripts/             ML setup and Playwright checks
 threeui/predictive-arc.json   Registered Predictive Arc bundle reference
