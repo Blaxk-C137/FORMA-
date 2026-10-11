@@ -6,10 +6,9 @@ export type GeminiModelOption = {
   freeTier: string;
   paidInput: string;
   paidOutput: string;
-  search: boolean;
 };
 
-/** Stable Gemini API models with text generation and Google Search grounding.
+/** Stable Gemini API text-generation models for optional refurbishment and search summaries.
  * Checked against Google's public model and pricing pages on 10 Oct 2026.
  * Preview-only and access-restricted legacy models are intentionally omitted.
  */
@@ -22,7 +21,6 @@ export const GEMINI_MODELS: GeminiModelOption[] = [
     freeTier: "Text input/output: free tier",
     paidInput: "$0.30 / 1M input tokens",
     paidOutput: "$2.50 / 1M output tokens",
-    search: true,
   },
   {
     id: "gemini-3.1-flash-lite",
@@ -32,7 +30,6 @@ export const GEMINI_MODELS: GeminiModelOption[] = [
     freeTier: "Text input/output: free tier",
     paidInput: "$0.25 / 1M text input tokens",
     paidOutput: "$1.50 / 1M output tokens",
-    search: true,
   },
   {
     id: "gemini-3.6-flash",
@@ -42,7 +39,6 @@ export const GEMINI_MODELS: GeminiModelOption[] = [
     freeTier: "Text input/output: free tier",
     paidInput: "$0.75 / 1M tokens through 31 Dec 2026; $1.50 from 1 Jan 2027",
     paidOutput: "$3.75 / 1M tokens through 31 Dec 2026; $7.50 from 1 Jan 2027",
-    search: true,
   },
   {
     id: "gemini-3.8-flash",
@@ -52,7 +48,6 @@ export const GEMINI_MODELS: GeminiModelOption[] = [
     freeTier: "Text input/output: free tier",
     paidInput: "$0.75 / 1M tokens through 31 Dec 2026; $1.50 from 1 Jan 2027",
     paidOutput: "$3.75 / 1M tokens through 31 Dec 2026; $7.50 from 1 Jan 2027",
-    search: true,
   },
 ];
 

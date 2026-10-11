@@ -1,3 +1,5 @@
+import type { SearchSource } from "@/lib/tavilyApi";
+
 export type GeminiSettings = {
   configured: boolean;
   vault_available: boolean;
@@ -6,12 +8,9 @@ export type GeminiSettings = {
   message?: string;
 };
 
-export type GeminiSearchResult = {
+export type GeminiSearchSummary = {
   text: string;
   model: string;
-  sources: { title: string; uri: string }[];
-  queries: string[];
-  search_entry_point?: string;
 };
 
 async function responseJson(response: Response): Promise<Record<string, unknown>> {
@@ -64,19 +63,16 @@ export async function refurbishText(text: string, model: string): Promise<string
   return String(body.text ?? "");
 }
 
-export async function runGeminiSearch(query: string, model: string): Promise<GeminiSearchResult> {
-  const response = await fetch("/api/gemini/search", {
+export async function summarizeTavilyResults(query: string, results: SearchSource[], model: string): Promise<GeminiSearchSummary> {
+  const response = await fetch("/api/gemini/summarize-search", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query, model }),
+    body: JSON.stringify({ query, results, model }),
   });
   const body = await responseJson(response);
-  if (!response.ok) throw new Error(String(body.detail ?? "Gemini web search failed."));
+  if (!response.ok) throw new Error(String(body.detail ?? "Gemini could not summarize these search results."));
   return {
     text: String(body.text ?? ""),
     model: String(body.model ?? model),
-    sources: Array.isArray(body.sources) ? body.sources.filter((s): s is { title: string; uri: string } => !!s && typeof s === "object" && typeof (s as { uri?: unknown }).uri === "string" && typeof (s as { title?: unknown }).title === "string") : [],
-    queries: Array.isArray(body.queries) ? body.queries.map(String) : [],
-    search_entry_point: typeof body.search_entry_point === "string" ? body.search_entry_point : undefined,
   };
 }

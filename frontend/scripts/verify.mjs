@@ -38,9 +38,8 @@ await page.locator(".sidebar-link").filter({ hasText: "Settings" }).click();
 await page.waitForTimeout(250);
 ok("Gemini settings has stable model choices", (await page.locator("#gemini-model option").count()) === 4);
 ok("key input does not expose a saved secret", (await page.locator("#gemini-key").getAttribute("type")) === "password");
-ok("Google Agent Search has a masked local key field", (await page.locator("#agent-search-key").getAttribute("type")) === "password");
-ok("Google Agent Search configuration requires a public-site app", (await page.getByText(/public website data store/i).count()) > 0);
-ok("model-pricing and privacy guidance are visible", (await page.getByText(/5,000 grounding requests/i).count()) > 0);
+ok("Tavily free search needs no key or account", (await page.getByText(/Tavily keyless/i).count()) > 0 && (await page.getByText(/no account, API key, or payment card/i).count()) > 0);
+ok("Tavily free-search limit and Gemini token/data-retention disclosure are visible", (await page.getByText(/rate-limited/i).count()) > 0 && (await page.getByText(/does not call Search grounding/i).count()) > 0 && (await page.getByText(/55-day retention/i).count()) > 0);
 await page.screenshot({ path: shot("10-settings"), fullPage: true });
 const settingsModel = await page.locator("#gemini-model").inputValue();
 await page.locator("#gemini-model").selectOption("gemini-3.8-flash");
@@ -49,14 +48,18 @@ await page.locator("#gemini-model").selectOption(settingsModel);
 
 await page.locator(".sidebar-link").filter({ hasText: "Terms & privacy" }).click();
 ok("terms page is separate and visible", await page.getByRole("heading", { name: /Terms & privacy/i }).isVisible());
-ok("terms explain local audio and optional Gemini/Google search", (await page.getByText(/audio is not uploaded/i).count()) > 0 && (await page.getByText(/Google Agent Search/i).count()) > 0);
+ok("terms explain local audio, Tavily search, and optional Gemini summary", (await page.getByText(/audio is not uploaded/i).count()) > 0 && (await page.getByText(/Tavily's keyless search service/i).count()) > 0);
 await page.locator(".sidebar-link").filter({ hasText: "Voice search" }).click();
 ok("voice search is a separate page", await page.getByRole("heading", { name: /Ask the web/i }).isVisible());
 ok("search uses a typed query input", await page.getByLabel("Search query").isVisible());
-ok("search engine selector switches Gemini and Google", (await page.getByLabel("Search engine").locator("option").count()) === 2);
+ok("search engine selector switches free results and Gemini summary", (await page.getByLabel("Search engine").locator("option").count()) === 2);
 const geminiSettings = await (await fetch("http://localhost:5173/api/gemini/settings")).json();
+await page.getByLabel("Search query").fill("local no-key fixture");
+await page.getByLabel("Search engine").selectOption("tavily");
+ok("Tavily search is available without a Gemini key", !(await page.getByRole("button", { name: /Search the web/i }).isDisabled()));
+await page.getByLabel("Search engine").selectOption("gemini");
 if (!geminiSettings.configured) {
-  ok("web search stays disabled until Gemini is configured", await page.getByRole("button", { name: /Search the web/i }).isDisabled());
+  ok("Gemini summary stays disabled until Gemini is configured", await page.getByRole("button", { name: /Search the web/i }).isDisabled());
 }
 
 await page.locator(".sidebar-link").filter({ hasText: "Voice studio" }).click();
@@ -104,65 +107,71 @@ await searchTest.route("**/api/gemini/settings", (route) => route.fulfill({
   contentType: "application/json",
   body: JSON.stringify({ configured: true, vault_available: true, key_source: "credential-vault", model_default: "gemini-3.5-flash-lite" }),
 }));
-await searchTest.route("**/api/agent-search/settings", (route) => route.fulfill({
-  status: 200,
-  contentType: "application/json",
-  body: JSON.stringify({ configured: true, vault_available: true, key_source: "credential-vault", project_id: "fixture-project", engine_id: "fixture-app", location: "global" }),
-}));
-await searchTest.route("**/api/agent-search/search", (route) => route.fulfill({
-  status: 200,
-  contentType: "application/json",
-  body: JSON.stringify({ provider: "google-agent-search", query: "direct fixture query", total: 1, results: [{ title: "Direct Google fixture", uri: "https://example.com/direct", snippet: "Clean parsed snippet fixture." }] }),
-}));
-let mockSearchCount = 0;
-await searchTest.route("**/api/gemini/search", (route) => {
-  if (mockSearchCount++ === 0) return route.fulfill({
-    status: 429,
-    contentType: "application/json",
-    body: JSON.stringify({ detail: "Google Gemini returned HTTP 429 (RESOURCE_EXHAUSTED). Quota details: fixture grounding_requests (limit 0). Google suggests retrying in about 3 seconds." }),
-  });
+let tavilySearchCount = 0;
+await searchTest.route("**/api/tavily/search", (route) => {
+  const body = route.request().postDataJSON();
+  tavilySearchCount++;
+  const direct = String(body.query).includes("direct");
   return route.fulfill({
     status: 200,
     contentType: "application/json",
     body: JSON.stringify({
-      text: "Playwright fixture answer [1].",
-      model: "gemini-3.5-flash-lite",
-      sources: [{ title: "Fixture source", uri: "https://example.com/fixture" }],
-      queries: ["fixture query"],
-      search_entry_point: '<div><a href="https://www.google.com/search?q=fixture">Fixture search suggestion</a></div>',
+      provider: "tavily-keyless",
+      query: body.query,
+      total: 1,
+      results: [{
+        title: direct ? "Direct Tavily fixture" : "Fixture source",
+        uri: direct ? "https://example.com/direct" : "https://example.com/fixture",
+        snippet: direct ? "Clean Tavily snippet fixture." : "Tavily snippet fixture.",
+      }],
     }),
+  });
+});
+let mockSummaryCount = 0;
+await searchTest.route("**/api/gemini/summarize-search", (route) => {
+  if (mockSummaryCount++ === 0) return route.fulfill({
+    status: 429,
+    contentType: "application/json",
+    body: JSON.stringify({ detail: "Google Gemini returned HTTP 429 (RESOURCE_EXHAUSTED). Quota details: fixture_gemini_requests (limit 0). Google suggests retrying in about 3 seconds." }),
+  });
+  return route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ text: "Playwright fixture answer [1].", model: "gemini-3.5-flash-lite" }),
   });
 });
 await searchTest.goto("http://localhost:5173/", { waitUntil: "domcontentloaded" });
 await searchTest.waitForTimeout(250);
 await searchTest.locator(".sidebar-link").filter({ hasText: "Voice search" }).click();
+await searchTest.getByLabel("Search engine").selectOption("gemini");
 await searchTest.getByLabel("Search query").fill("fixture query");
 await searchTest.getByRole("button", { name: "Search the web" }).click();
 const rateAlert = searchTest.getByRole("alert");
 await rateAlert.waitFor({ timeout: 5000 });
-ok("HTTP 429 shows Google quota diagnostics", (await rateAlert.innerText()).includes("grounding_requests"));
-ok("HTTP 429 links to Gemini rate-limit documentation", await searchTest.getByText("Gemini rate-limit details").isVisible());
+ok("Gemini summary 429 shows the Gemini quota metric", (await rateAlert.innerText()).includes("fixture_gemini_requests"));
+ok("Gemini summary 429 links to rate-limit documentation", await searchTest.getByText("Gemini rate-limit details").isVisible());
+ok("Tavily results remain visible when Gemini summary is rate-limited", await searchTest.getByText("Tavily snippet fixture.").isVisible());
 await searchTest.getByRole("button", { name: "Search the web" }).click();
 await searchTest.getByText("Playwright fixture answer", { exact: false }).waitFor({ timeout: 5000 });
-ok("grounded UI fixture shows clickable citation marker", await searchTest.locator(".grounding-citation[href='#grounded-source-1']").isVisible());
-ok("grounded UI fixture renders source list", await searchTest.locator("#grounded-source-1").getByText("Fixture source").isVisible());
-ok("Google Search suggestion renders in its isolated widget", await searchTest.locator(".google-search-suggestions").evaluate((el) => el.shadowRoot?.textContent?.includes("Fixture search suggestion") ?? false));
+ok("Gemini summary fixture shows a citation linked to a Tavily source", await searchTest.locator(".source-citation[href='#search-source-1']").isVisible());
+ok("Gemini summary fixture renders the original Tavily source", await searchTest.locator("#search-source-1").getByText("Fixture source").isVisible());
 await searchTest.locator("select[aria-label='Export format']").selectOption("json");
 const resultDownloadPromise = searchTest.waitForEvent("download");
 await searchTest.getByRole("button", { name: "Export result" }).click();
 ok("search result can be exported", (await resultDownloadPromise).suggestedFilename().endsWith(".json"));
-await searchTest.getByLabel("Search engine").selectOption("google");
+await searchTest.getByLabel("Search engine").selectOption("tavily");
 await searchTest.getByLabel("Search query").fill("direct fixture query");
 await searchTest.getByRole("button", { name: "Search the web" }).click();
-await searchTest.getByText("Direct Google fixture", { exact: false }).waitFor({ timeout: 5000 });
-ok("Google Agent Search parses direct result title and snippet", await searchTest.getByText("Clean parsed snippet fixture.").isVisible());
-ok("search engine switch selects Google direct results", (await searchTest.getByRole("heading", { name: "direct fixture query" }).isVisible()) && (await searchTest.getByText("GOOGLE RESULTS").isVisible()));
+await searchTest.getByText("Direct Tavily fixture", { exact: false }).waitFor({ timeout: 5000 });
+ok("Tavily parses direct result title and snippet", await searchTest.getByText("Clean Tavily snippet fixture.").isVisible());
+ok("search engine switch selects free Tavily results", (await searchTest.getByRole("heading", { name: "direct fixture query" }).isVisible()) && (await searchTest.getByText("TAVILY WEB RESULTS").isVisible()));
+ok("Tavily results do not trigger another Gemini request", mockSummaryCount === 2 && tavilySearchCount === 3);
 await searchTest.locator("select[aria-label='Export format']").selectOption("csv");
 const directDownloadPromise = searchTest.waitForEvent("download");
 await searchTest.getByRole("button", { name: "Export result" }).click();
-ok("Google result cards export with the selected format", (await directDownloadPromise).suggestedFilename().endsWith(".csv"));
+ok("Tavily result cards export with the selected format", (await directDownloadPromise).suggestedFilename().endsWith(".csv"));
 await searchTest.locator(".sidebar-link").filter({ hasText: "Session history" }).click();
-ok("grounded and direct search results are not added to session history", (await searchTest.getByText("Playwright fixture answer", { exact: false }).count()) === 0 && (await searchTest.getByText("Direct Google fixture", { exact: false }).count()) === 0);
+ok("Gemini summaries and Tavily results are not added to session history", (await searchTest.getByText("Playwright fixture answer", { exact: false }).count()) === 0 && (await searchTest.getByText("Direct Tavily fixture", { exact: false }).count()) === 0);
 await searchTest.close();
 
 // End-to-end local audio round trip; no Gemini key/API is used by this test.

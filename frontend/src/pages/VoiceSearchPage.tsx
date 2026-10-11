@@ -4,37 +4,33 @@ import { AudioWave } from "@/components/AudioWave";
 import { ExportMenu } from "@/components/ExportMenu";
 import { Button } from "@/components/ui/button";
 import { useSpeechApi } from "@/hooks/useSpeechApi";
-import { runGoogleAgentSearch } from "@/lib/agentSearchApi";
-import { runGeminiSearch } from "@/lib/geminiApi";
+import { summarizeTavilyResults } from "@/lib/geminiApi";
+import { runTavilySearch, type SearchSource } from "@/lib/tavilyApi";
 import { exportSearchResult, type ExportFormat } from "@/lib/export";
 import { fileToWavBlob } from "@/lib/wav";
 
 type VoiceSearchPageProps = {
   geminiConfigured: boolean;
-  googleSearchConfigured: boolean;
   model: string;
   onGoToSettings: () => void;
   onToast: (message: string) => void;
 };
 
-type SearchProvider = "gemini" | "google";
-type SearchCardSource = { title: string; uri: string; snippet?: string };
+type SearchProvider = "tavily" | "gemini";
 type SearchPageResult = {
   query: string;
   createdAt: string;
   provider: SearchProvider;
   text: string;
   model: string;
-  sources: SearchCardSource[];
-  queries: string[];
-  search_entry_point?: string;
-  total?: number;
+  sources: SearchSource[];
+  total: number;
 };
 
-const SEARCH_PROVIDER_KEY = "forma.search-provider.v1";
+const SEARCH_PROVIDER_KEY = "forma.search-provider.v2";
 function readSearchProvider(): SearchProvider {
-  try { return localStorage.getItem(SEARCH_PROVIDER_KEY) === "google" ? "google" : "gemini"; }
-  catch { return "gemini"; }
+  try { return localStorage.getItem(SEARCH_PROVIDER_KEY) === "gemini" ? "gemini" : "tavily"; }
+  catch { return "tavily"; }
 }
 
 function sourceDomain(uri: string): string {
@@ -42,53 +38,22 @@ function sourceDomain(uri: string): string {
   catch { return uri; }
 }
 
-function GroundedAnswer({ text, sourceCount }: { text: string; sourceCount: number }) {
+function CitedSummary({ text, sourceCount }: { text: string; sourceCount: number }) {
   const parts = text.split(/(\[\d+\])/g);
   return (
-    <div className="grounded-answer">
+    <div className="cited-summary">
       {parts.map((part, index) => {
         const match = /^\[(\d+)\]$/.exec(part);
         const sourceNumber = match ? Number(match[1]) : 0;
         return sourceNumber > 0 && sourceNumber <= sourceCount
-          ? <a className="grounding-citation" href={`#grounded-source-${sourceNumber}`} key={`${part}-${index}`}>{part}</a>
+          ? <a className="source-citation" href={`#search-source-${sourceNumber}`} key={`${part}-${index}`}>{part}</a>
           : <span key={`text-${index}`}>{part}</span>;
       })}
     </div>
   );
 }
 
-function SearchSuggestions({ html }: { html: string }) {
-  const hostRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const host = hostRef.current;
-    if (!host || !html) return;
-    const shadow = host.shadowRoot ?? host.attachShadow({ mode: "open" });
-    shadow.replaceChildren();
-    const style = document.createElement("style");
-    style.textContent = ":host{display:block;color:inherit;font:inherit} *{box-sizing:border-box} a{color:#7c55d9} ";
-    shadow.append(style);
-    const template = document.createElement("template");
-    template.innerHTML = html;
-    template.content.querySelectorAll("script,iframe,object,embed,form").forEach((node) => node.remove());
-    template.content.querySelectorAll("*").forEach((element) => {
-      [...element.attributes].forEach((attribute) => {
-        const name = attribute.name.toLowerCase();
-        if (name.startsWith("on") || name === "srcdoc") element.removeAttribute(attribute.name);
-        if (name === "href") {
-          try {
-            if (new URL(attribute.value, window.location.href).protocol !== "https:") element.removeAttribute(attribute.name);
-          } catch {
-            element.removeAttribute(attribute.name);
-          }
-        }
-      });
-    });
-    shadow.append(template.content.cloneNode(true));
-  }, [html]);
-  return <div className="google-search-suggestions" aria-label="Google Search suggestions" ref={hostRef} />;
-}
-
-export function VoiceSearchPage({ geminiConfigured, googleSearchConfigured, model, onGoToSettings, onToast }: VoiceSearchPageProps) {
+export function VoiceSearchPage({ geminiConfigured, model, onGoToSettings, onToast }: VoiceSearchPageProps) {
   const { status, checking, transcribe } = useSpeechApi();
   const [query, setQuery] = useState("");
   const [provider, setProvider] = useState<SearchProvider>(readSearchProvider);
@@ -96,7 +61,7 @@ export function VoiceSearchPage({ geminiConfigured, googleSearchConfigured, mode
   const [transcribingVoice, setTranscribingVoice] = useState(false);
   const [searching, setSearching] = useState(false);
   const [elapsed, setElapsed] = useState(0);
-  const [hint, setHint] = useState("Speak a question, place, or phrase. Whisper will recognize it locally.");
+  const [hint, setHint] = useState("Speak a query; Whisper recognizes it locally. Search results are provided by free, rate-limited Tavily.");
   const [liveStream, setLiveStream] = useState<MediaStream | null>(null);
   const [result, setResult] = useState<SearchPageResult | null>(null);
   const [error, setError] = useState("");
@@ -139,7 +104,7 @@ export function VoiceSearchPage({ geminiConfigured, googleSearchConfigured, mode
       if (recognized.ok) {
         setQuery(recognized.data.text);
         setHint("Voice query recognized locally. Review it, then click Search.");
-        onToast("Voice query ready. Nothing has been sent to Gemini yet.");
+        onToast("Voice query ready. Nothing has been sent to web search yet.");
       } else {
         setHint(recognized.error);
       }
@@ -212,37 +177,39 @@ export function VoiceSearchPage({ geminiConfigured, googleSearchConfigured, mode
     const cleaned = query.trim();
     if (!cleaned) return;
     if (provider === "gemini" && !geminiConfigured) {
-      setError("Add a Gemini API key in Settings before using Gemini grounded search.");
-      return;
-    }
-    if (provider === "google" && !googleSearchConfigured) {
-      setError("Set up Google Agent Search in Settings before using direct Google results.");
+      setError("Add a Gemini API key in Settings before requesting a Gemini summary.");
       return;
     }
     setSearching(true);
     setError("");
     setResult(null);
+    let directResult: SearchPageResult | null = null;
     try {
       const createdAt = new Date().toISOString();
-      if (provider === "gemini") {
-        const response = await runGeminiSearch(cleaned, model);
-        setResult({ ...response, query: cleaned, createdAt, provider: "gemini" });
-        setHint("Gemini's grounded answer is ready. Citation-linked sources and Google's Search Suggestions are shown below.");
-      } else {
-        const response = await runGoogleAgentSearch(cleaned);
-        setResult({
-          query: cleaned,
-          createdAt,
-          provider: "google",
-          text: "",
-          model: "Google Agent Search",
-          sources: response.results,
-          queries: [],
-          total: response.total,
-        });
-        setHint("Google Agent Search returned direct results from the sites indexed by your configured app.");
+      const response = await runTavilySearch(cleaned);
+      directResult = {
+        query: cleaned,
+        createdAt,
+        provider: "tavily",
+        text: "",
+        model: "Tavily keyless search",
+        sources: response.results,
+        total: response.total,
+      };
+      if (provider === "tavily") {
+        setResult(directResult);
+        setHint(`Tavily returned ${response.results.length} results. Keyless access is free and rate-limited.`);
+        return;
       }
+
+      // Preserve and show the free result cards even if Gemini summary is quota-limited.
+      setResult(directResult);
+      setHint("Tavily results are ready. Asking Gemini for a summary using only these snippets…");
+      const summary = await summarizeTavilyResults(cleaned, response.results, model);
+      setResult({ ...directResult, provider: "gemini", text: summary.text, model: summary.model });
+      setHint("Gemini summarized Tavily's results. Sources below are the Tavily pages supplied to the model.");
     } catch (reason) {
+      if (provider === "gemini" && directResult) setResult(directResult);
       setError(reason instanceof Error ? reason.message : "Search failed.");
     } finally {
       setSearching(false);
@@ -254,7 +221,7 @@ export function VoiceSearchPage({ geminiConfigured, googleSearchConfigured, mode
   return (
     <div className="page-stack">
       <div className="page-heading-row">
-        <div><div className="eyebrow"><Search className="h-3.5 w-3.5" /> VOICE SEARCH</div><h1 className="page-title">Ask the web<span className="text-violet">.</span></h1><p className="page-subtitle">Speak your query; local Whisper transcribes it, then choose a grounded Gemini answer or direct Google site results.</p></div>
+        <div><div className="eyebrow"><Search className="h-3.5 w-3.5" /> VOICE SEARCH</div><h1 className="page-title">Ask the web<span className="text-violet">.</span></h1><p className="page-subtitle">Speak your query; local Whisper transcribes it. Tavily fetches free, structured web results; Gemini is optional for a summary.</p></div>
       </div>
 
       <section className="search-compose settings-card">
@@ -268,36 +235,35 @@ export function VoiceSearchPage({ geminiConfigured, googleSearchConfigured, mode
         <div className="search-provider-row">
           <label htmlFor="search-provider" className="field-label">Search engine</label>
           <select id="search-provider" className="select-control model-select" value={provider} disabled={searching} onChange={(event) => { setProvider(event.target.value as SearchProvider); setError(""); setResult(null); }}>
-            <option value="gemini">Gemini · Google Search grounded answer</option>
-            <option value="google">Google Agent Search · direct result cards</option>
+            <option value="tavily">Tavily · free web results</option>
+            <option value="gemini">Gemini · summarize Tavily results</option>
           </select>
-          <p className="field-help">Gemini grounds an AI answer in Google Search. Google Agent Search returns direct title/snippet results from the public sites configured in your Cloud search app.</p>
+          <p className="field-help">Both modes retrieve the same results from Tavily. Gemini mode additionally sends the query and the returned titles, URLs, and snippets (not full pages) to Gemini for a cited summary using ordinary text generation, not Google Search grounding.</p>
         </div>
         <form className="search-form" onSubmit={(event) => void handleSearch(event)}>
           <label htmlFor="voice-search-query" className="field-label">Search query</label>
           <textarea id="voice-search-query" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="What would you like to find out?" rows={3} maxLength={2000} />
           <div className="search-form-bottom"><span>{hint}</span><span>{query.length}/2,000</span></div>
           <div className="search-form-actions">
-            {!(provider === "gemini" ? geminiConfigured : googleSearchConfigured) ? <Button type="button" variant="outline" onClick={onGoToSettings}>Set up {provider === "gemini" ? "Gemini" : "Google Agent Search"} in Settings</Button> : null}
-            <Button type="submit" disabled={!query.trim() || !(provider === "gemini" ? geminiConfigured : googleSearchConfigured) || searching || recording || transcribingVoice} className="gap-2">
+            {provider === "gemini" && !geminiConfigured ? <Button type="button" variant="outline" onClick={onGoToSettings}>Set up Gemini in Settings</Button> : null}
+            <Button type="submit" disabled={!query.trim() || (provider === "gemini" && !geminiConfigured) || searching || recording || transcribingVoice} className="gap-2">
               {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}{searching ? "Searching…" : "Search the web"}
             </Button>
           </div>
         </form>
-        <div className="privacy-callout"><ShieldCheck className="h-4 w-4 shrink-0 text-violet" /><p>{provider === "gemini" ? <>The recording is transcribed locally. After you click <strong>Search the web</strong>, only the query text is sent to Gemini with Google Search grounding. Gemini 3 Search grounding is not available on the Gemini API free tier; paid-tier billing and grounding quota may be required.</> : <>The recording is transcribed locally. After you click <strong>Search the web</strong>, the query is sent to Google Cloud Agent Search. Results come from the sites in your configured Search app; Cloud quotas and charges can apply.</>}</p></div>
+        <div className="privacy-callout"><ShieldCheck className="h-4 w-4 shrink-0 text-violet" /><p>{provider === "gemini" ? <>After you click <strong>Search the web</strong>, the query goes to Tavily; if Gemini summary is selected, the query plus returned titles, URLs, and snippets (not full pages) go to Google. Tavily and Google's retention/data-use policies apply; Google's abuse-monitoring policy currently states 55-day retention. Gemini quotas and token charges may apply. This uses ordinary text generation, not Google Search grounding.</> : <>After you click <strong>Search the web</strong>, only the query goes to Tavily's free, keyless search API. It is rate-limited; Tavily may retain query data as needed and share it with search-index providers in limited cases. Avoid sensitive searches. Audio stays local.</>}</p></div>
       </section>
 
-      {error ? <div className="form-error search-error" role="alert"><AlertCircle className="h-4 w-4 shrink-0" /><span>{error}{error.includes("HTTP 429") ? provider === "gemini" ? <> <a className="external-link" href="https://ai.google.dev/gemini-api/docs/rate-limits" target="_blank" rel="noreferrer">Gemini rate-limit details</a> · <a className="external-link" href="https://ai.google.dev/gemini-api/docs/google-search" target="_blank" rel="noreferrer">Search grounding limits</a></> : <> <a className="external-link" href="https://console.cloud.google.com/iam-admin/quotas" target="_blank" rel="noreferrer">Google Cloud quotas</a> · <a className="external-link" href="https://cloud.google.com/generative-ai-app-builder/pricing" target="_blank" rel="noreferrer">Agent Search pricing</a></> : null}</span></div> : null}
+      {error ? <div className="form-error search-error" role="alert"><AlertCircle className="h-4 w-4 shrink-0" /><span>{error}{error.toLowerCase().includes("tavily") ? <> <a className="external-link" href="https://docs.tavily.com/documentation/keyless" target="_blank" rel="noreferrer">Tavily keyless limits and free access</a></> : error.includes("HTTP 429") ? <> <a className="external-link" href="https://ai.google.dev/gemini-api/docs/rate-limits" target="_blank" rel="noreferrer">Gemini rate-limit details</a></> : null}</span></div> : null}
 
       {result ? (
         <section className="search-result settings-card" aria-live="polite">
-          <div className="search-result-head"><div><div className="eyebrow">{result.provider === "gemini" ? "GROUNDED ANSWER" : "GOOGLE RESULTS"}</div><h2>{result.query}</h2><span className="search-result-meta">{new Date(result.createdAt).toLocaleString()} · {result.provider === "gemini" ? result.model : `${result.sources.length} shown of ${result.total ?? result.sources.length}`}</span></div><ExportMenu label="Export result" onExport={(format: ExportFormat) => exportSearchResult({ query: result.query, text: result.text, provider: result.provider === "gemini" ? "Gemini Search grounding" : "Google Agent Search", model: result.model, total: result.total, createdAt: result.createdAt, sources: result.sources }, format)} /></div>
+          <div className="search-result-head"><div><div className="eyebrow">{result.provider === "gemini" ? "GEMINI SUMMARY · TAVILY SOURCES" : "TAVILY WEB RESULTS"}</div><h2>{result.query}</h2><span className="search-result-meta">{new Date(result.createdAt).toLocaleString()} · {result.sources.length} result{result.sources.length === 1 ? "" : "s"} · {result.provider === "gemini" ? result.model : "free keyless search"}</span></div><ExportMenu label="Export result" onExport={(format: ExportFormat) => exportSearchResult({ query: result.query, text: result.text, provider: result.provider === "gemini" ? "Gemini summary using Tavily" : "Tavily keyless search", model: result.model, total: result.total, createdAt: result.createdAt, sources: result.sources }, format)} /></div>
           {result.provider === "gemini" ? <>
-            <GroundedAnswer text={result.text} sourceCount={result.sources.length} />
-            <div className="grounded-sources"><h3>Sources</h3>{result.sources.length ? <ol>{result.sources.map((source, index) => <li id={`grounded-source-${index + 1}`} key={`${source.uri}-${index}`}><span className="source-number">{index + 1}</span><a href={source.uri} target="_blank" rel="noopener noreferrer">{source.title || source.uri}<ExternalLink className="h-3 w-3" /></a></li>)}</ol> : <p>No source URLs were provided for this answer. Treat it as unverified.</p>}</div>
-            {result.queries.length ? <p className="search-query-note">Google searches used: {result.queries.join(" · ")}</p> : null}
-            {result.search_entry_point ? <div className="suggestions-wrap"><p className="field-label">Google Search suggestions</p><SearchSuggestions html={result.search_entry_point} /></div> : null}
-          </> : <div className="agent-search-results"><h3>Direct results from your indexed sites</h3>{result.sources.length ? <ol>{result.sources.map((source, index) => <li className="agent-result-card" key={`${source.uri}-${index}`}><span className="source-number">{index + 1}</span><div><a href={source.uri} target="_blank" rel="noopener noreferrer">{source.title || source.uri}<ExternalLink className="h-3 w-3" /></a><div className="agent-result-domain">{sourceDomain(source.uri)}</div>{source.snippet ? <p>{source.snippet}</p> : <p className="agent-result-empty">Google did not return a snippet for this page.</p>}</div></li>)}</ol> : <p>No matching pages were returned from the sites indexed by this Agent Search app.</p>}</div>}
+            <CitedSummary text={result.text} sourceCount={result.sources.length} />
+            <div className="search-sources"><h3>Search sources</h3>{result.sources.length ? <ol>{result.sources.map((source, index) => <li id={`search-source-${index + 1}`} key={`${source.uri}-${index}`}><span className="source-number">{index + 1}</span><a href={source.uri} target="_blank" rel="noopener noreferrer">{source.title || source.uri}<ExternalLink className="h-3 w-3" /></a>{source.snippet ? <p>{source.snippet}</p> : null}</li>)}</ol> : <p>No source links were returned by Tavily. Treat this summary as unverified.</p>}</div>
+            <p className="search-query-note">Gemini summarized the Tavily snippets shown above. Verify important claims on the original pages.</p>
+          </> : <div className="web-search-results"><h3>Direct results from Tavily</h3>{result.sources.length ? <ol>{result.sources.map((source, index) => <li className="web-result-card" key={`${source.uri}-${index}`}><span className="source-number">{index + 1}</span><div><a href={source.uri} target="_blank" rel="noopener noreferrer">{source.title || source.uri}<ExternalLink className="h-3 w-3" /></a><div className="web-result-domain">{sourceDomain(source.uri)}</div>{source.snippet ? <p>{source.snippet}</p> : <p className="web-result-empty">No snippet was returned for this page.</p>}</div></li>)}</ol> : <p>Tavily returned no results for this query.</p>}</div>}
           <div className="search-result-foot"><Volume2 className="h-3.5 w-3.5" /> This individual result is temporary in Forma. Export it yourself if you want to keep a copy; it is not added to session history.</div>
         </section>
       ) : null}

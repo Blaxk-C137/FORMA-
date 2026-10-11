@@ -15,7 +15,6 @@ import { SpeechPanel } from "@/components/SpeechPanel";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { TranscriptCard } from "@/components/TranscriptCard";
 import { useSpeechApi } from "@/hooks/useSpeechApi";
-import { getGoogleAgentSearchSettings, type GoogleAgentSearchSettings } from "@/lib/agentSearchApi";
 import { getGeminiSettings, refurbishText, type GeminiSettings } from "@/lib/geminiApi";
 import { exportSessions, exportTranscript, type ExportFormat } from "@/lib/export";
 import { clearActiveSession, formatSessionTitle, persistHistory, persistSession, readActiveSession, readHistory, sessionWordCount, type SessionRecord } from "@/lib/history";
@@ -87,7 +86,6 @@ export default function App() {
   const [sessionSegmentBase, setSessionSegmentBase] = useState(initial?.segmentCount ?? 0);
   const [sessionToken, setSessionToken] = useState(0);
   const [geminiSettings, setGeminiSettings] = useState<GeminiSettings | null>(null);
-  const [agentSearchSettings, setAgentSearchSettings] = useState<GoogleAgentSearchSettings | null>(null);
   const [geminiModel, setGeminiModel] = useState(readGeminiModel);
   const { status, checking, transcribe, synthesize } = useSpeechApi();
 
@@ -106,14 +104,11 @@ export default function App() {
   }, []);
 
   const onGeminiRefresh = useCallback((settings: GeminiSettings) => setGeminiSettings(settings), []);
-  const onAgentSearchRefresh = useCallback((settings: GoogleAgentSearchSettings) => setAgentSearchSettings(settings), []);
 
   useEffect(() => {
     const refresh = async () => {
       try { setGeminiSettings(await getGeminiSettings()); }
       catch { setGeminiSettings({ configured: false, vault_available: false, model_default: "gemini-3.5-flash-lite" }); }
-      try { setAgentSearchSettings(await getGoogleAgentSearchSettings()); }
-      catch { setAgentSearchSettings({ configured: false, vault_available: false, key_source: null, project_id: "", engine_id: "", location: "global" }); }
     };
     void refresh();
   }, []);
@@ -372,7 +367,7 @@ export default function App() {
         <nav className="sidebar-nav">
           {NAV.map(({ id, label, Icon }) => <button key={id} type="button" className={`sidebar-link ${page === id ? "active" : ""}`} aria-current={page === id ? "page" : undefined} onClick={() => navigate(id)}><Icon className="h-[18px] w-[18px]" /><span>{label}</span>{id === "history" && history.length ? <small>{history.length}</small> : null}</button>)}
         </nav>
-        <div className="sidebar-bottom"><div className="sidebar-status"><span className={`status-dot ${status?.stub ? "stub" : status?.stt_ready ? "online" : ""}`} />{statusLabel}</div><div className="sidebar-local-note">Whisper + Piper run locally.<br />Gemini is opt-in.</div></div>
+        <div className="sidebar-bottom"><div className="sidebar-status"><span className={`status-dot ${status?.stub ? "stub" : status?.stt_ready ? "online" : ""}`} />{statusLabel}</div><div className="sidebar-local-note">Whisper + Piper run locally.<br />Tavily search · Gemini optional.</div></div>
       </aside>
 
       <div className="workspace-shell">
@@ -399,11 +394,11 @@ export default function App() {
             </div>
           ) : null}
 
-          {page === "search" ? <VoiceSearchPage geminiConfigured={geminiConfigured} googleSearchConfigured={Boolean(agentSearchSettings?.configured)} model={geminiModel} onGoToSettings={() => navigate("settings")} onToast={showToast} /> : null}
+          {page === "search" ? <VoiceSearchPage geminiConfigured={geminiConfigured} model={geminiModel} onGoToSettings={() => navigate("settings")} onToast={showToast} /> : null}
 
           {page === "history" ? <HistoryPage sessions={history} onOpen={openHistorySession} onDelete={removeHistoryItem} onClear={clearHistory} onExport={(rows, format) => { exportSessions(rows, format); showToast(format === "pdf" ? "Print dialog opened; choose Save as PDF." : "History exported."); }} /> : null}
 
-          {page === "settings" ? <SettingsPage model={geminiModel} onModelChange={changeModel} gemini={geminiSettings} onGeminiRefresh={onGeminiRefresh} agentSearch={agentSearchSettings} onAgentSearchRefresh={onAgentSearchRefresh} onToast={showToast} onTerms={() => navigate("terms")} /> : null}
+          {page === "settings" ? <SettingsPage model={geminiModel} onModelChange={changeModel} gemini={geminiSettings} onGeminiRefresh={onGeminiRefresh} onToast={showToast} onTerms={() => navigate("terms")} /> : null}
 
           {page === "terms" ? <TermsPage onBackToSettings={() => navigate("settings")} /> : null}
         </main>
