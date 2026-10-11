@@ -10,7 +10,7 @@ export function TermsPage({ onBackToSettings }: TermsPageProps) {
         <div>
           <div className="eyebrow"><ShieldCheck className="h-3.5 w-3.5" /> TRUST & TRANSPARENCY</div>
           <h1 className="page-title">Terms & privacy<span className="text-violet">.</span></h1>
-          <p className="page-subtitle">A clear map of which parts run locally and what happens when you opt into Gemini.</p>
+          <p className="page-subtitle">A clear map of which parts run locally and what happens when you opt into Gemini or Google Cloud search.</p>
         </div>
         <Button variant="outline" onClick={onBackToSettings}>Back to settings</Button>
       </div>
@@ -28,24 +28,29 @@ export function TermsPage({ onBackToSettings }: TermsPageProps) {
           <div className="settings-card-head"><div className="flex items-center gap-3"><span className="settings-icon"><Wifi className="h-4 w-4" /></span><div><h2>Optional Gemini features</h2><p>Network requests happen only after your action</p></div></div></div>
           <div className="settings-card-body terms-copy">
             <p><strong>Refurbish:</strong> when you click the button, the current transcript text is sent to the Gemini API. Review the returned suggestion before applying it.</p>
-            <p><strong>Voice web search:</strong> Whisper recognizes the microphone locally. Audio is not uploaded to Gemini; only the resulting search query is sent to Google with Search grounding after you click Search.</p>
-            <p>A key entered in Settings is held in the operating system credential vault on this machine and used by the local Python service; an environment-managed key remains in the user's environment. Neither key is returned to the UI or stored in browser local storage. Remove a saved key from Settings, or remove the environment variable at its source. A user-provided key can incur Google charges.</p>
+            <p><strong>Voice web search:</strong> Whisper recognizes the microphone locally. Audio is not uploaded. After you click Search, the selected provider receives only the query text: Gemini grounding generates an answer from Google Search, while Google Agent Search returns clean results from the public websites indexed by your configured Cloud app (not unrestricted Google Web Search).</p>
+            <p>The Interactions API call uses <code>store: false</code>; Search grounding remains subject to Google's separate 30-day retention terms. Direct Agent Search queries are sent to Google Cloud and may incur Cloud charges. Neither provider's results are added to Forma session history.</p>
+            <p>Keys entered in Settings are held in the operating system credential vault on this machine and used by the local Python service; environment-managed credentials remain in the user's environment. Neither key is returned to the UI or stored in browser local storage. Remove saved Google credentials from Settings, or remove environment variables at their source.</p>
           </div>
         </section>
 
         <section className="settings-card terms-card terms-wide">
-          <div className="settings-card-head"><div className="flex items-center gap-3"><span className="settings-icon"><ExternalLink className="h-4 w-4" /></span><div><h2>Google data, billing & search rules</h2><p>Checked against Google’s public Gemini API documentation on 10 Oct 2026</p></div></div></div>
+          <div className="settings-card-head"><div className="flex items-center gap-3"><span className="settings-icon"><ExternalLink className="h-4 w-4" /></span><div><h2>Google data, billing & search rules</h2><p>Checked against Google’s public Gemini and Agent Search docs on 11 Oct 2026</p></div></div></div>
           <div className="settings-card-body terms-copy">
             <ul>
               <li>On Google's free API tier, input/output may be free for eligible stable models, but limits apply and Google may use submitted prompts and outputs to improve its products. Paid-tier inputs/outputs are not used to improve Google products under the published terms.</li>
               <li>Google currently describes Grounding with Google Search via the Gemini API as a paid service. Its pricing page lists 5,000 grounding requests per month on the paid tier, then $14 per 1,000 requests. A single prompt can trigger more than one search query. Model token charges may also apply.</li>
-              <li>Google's Search terms state that prompts, context, and outputs used for Search grounding may be stored for 30 days. Grounded results and the associated Search Suggestions are displayed together. Forma does not add grounded answers to session history; use the result's export control to save an individual result yourself.</li>
+              <li>Google Agent Search is a separate Cloud product: its `searchLite` API returns structured results from the public-site data store attached to the user's app. Google's current pricing page advertises a 10,000-query monthly free trial per account and lists Standard Search at $1.50 per 1,000 queries; indexing, storage, and optional features can add costs. Check the live pricing for the configured app.</li>
+              <li>Forma sets the Interactions API request to <code>store: false</code>, so it does not keep an interaction history there. Google's Search-grounding terms separately state that prompts, context, and outputs may be stored for 30 days. Grounded results and their associated Search Suggestions are displayed together. Forma does not add results from either provider to session history; use the result's export control to save a copy yourself.</li>
               <li>Google's Gemini API terms describe the service as intended for professional/business use and require users to meet its age and regional requirements. Nigeria is listed in Google's available regions; check the live list because availability can change.</li>
             </ul>
             <div className="terms-links">
               <a className="external-link" href="https://ai.google.dev/gemini-api/terms" target="_blank" rel="noreferrer">Gemini API terms <ExternalLink className="h-3.5 w-3.5" /></a>
               <a className="external-link" href="https://ai.google.dev/gemini-api/docs/google-search" target="_blank" rel="noreferrer">Google Search grounding docs <ExternalLink className="h-3.5 w-3.5" /></a>
               <a className="external-link" href="https://ai.google.dev/gemini-api/docs/pricing" target="_blank" rel="noreferrer">Gemini API pricing <ExternalLink className="h-3.5 w-3.5" /></a>
+              <a className="external-link" href="https://ai.google.dev/gemini-api/docs/rate-limits" target="_blank" rel="noreferrer">Gemini rate limits <ExternalLink className="h-3.5 w-3.5" /></a>
+              <a className="external-link" href="https://docs.cloud.google.com/generative-ai-app-builder/docs/preview-search-results" target="_blank" rel="noreferrer">Agent Search API <ExternalLink className="h-3.5 w-3.5" /></a>
+              <a className="external-link" href="https://cloud.google.com/generative-ai-app-builder/pricing" target="_blank" rel="noreferrer">Agent Search pricing <ExternalLink className="h-3.5 w-3.5" /></a>
               <a className="external-link" href="https://ai.google.dev/gemini-api/docs/available-regions" target="_blank" rel="noreferrer">Available regions <ExternalLink className="h-3.5 w-3.5" /></a>
             </div>
             <p className="field-help">This page is an app-specific summary, not legal advice. Google's linked terms and pricing are authoritative and may change; review them before enabling Gemini or distributing Forma to other users.</p>

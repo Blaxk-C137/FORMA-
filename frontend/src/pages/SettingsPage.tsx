@@ -1,7 +1,9 @@
-import { ExternalLink, Eye, EyeOff, KeyRound, Loader2, ShieldCheck, Sparkles } from "lucide-react";
+import { ExternalLink, Eye, EyeOff, Globe2, KeyRound, Loader2, ShieldCheck, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import type { GoogleAgentSearchSettings } from "@/lib/agentSearchApi";
+import { getGoogleAgentSearchSettings, removeGoogleAgentSearchSettings, saveGoogleAgentSearchSettings } from "@/lib/agentSearchApi";
 import type { GeminiSettings } from "@/lib/geminiApi";
 import { getGeminiSettings, removeGeminiKey, saveGeminiKey } from "@/lib/geminiApi";
 import { GEMINI_MODELS } from "@/lib/geminiModels";
@@ -11,17 +13,27 @@ type SettingsPageProps = {
   onModelChange: (model: string) => void;
   gemini: GeminiSettings | null;
   onGeminiRefresh: (settings: GeminiSettings) => void;
+  agentSearch: GoogleAgentSearchSettings | null;
+  onAgentSearchRefresh: (settings: GoogleAgentSearchSettings) => void;
   onToast: (message: string) => void;
   onTerms: () => void;
 };
 
-export function SettingsPage({ model, onModelChange, gemini, onGeminiRefresh, onToast, onTerms }: SettingsPageProps) {
+export function SettingsPage({ model, onModelChange, gemini, onGeminiRefresh, agentSearch, onAgentSearchRefresh, onToast, onTerms }: SettingsPageProps) {
   const [key, setKey] = useState("");
   const [showKey, setShowKey] = useState(false);
   const [savingKey, setSavingKey] = useState(false);
   const [removingKey, setRemovingKey] = useState(false);
   const [loading, setLoading] = useState(!gemini);
   const [error, setError] = useState("");
+  const [agentKey, setAgentKey] = useState("");
+  const [showAgentKey, setShowAgentKey] = useState(false);
+  const [agentProject, setAgentProject] = useState(agentSearch?.project_id ?? "");
+  const [agentEngine, setAgentEngine] = useState(agentSearch?.engine_id ?? "");
+  const [agentLocation, setAgentLocation] = useState<"global" | "us" | "eu">(agentSearch?.location ?? "global");
+  const [savingAgent, setSavingAgent] = useState(false);
+  const [removingAgent, setRemovingAgent] = useState(false);
+  const [agentError, setAgentError] = useState("");
 
   useEffect(() => {
     let live = true;
@@ -34,6 +46,23 @@ export function SettingsPage({ model, onModelChange, gemini, onGeminiRefresh, on
     }).finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
   }, [onGeminiRefresh]);
+
+  useEffect(() => {
+    let live = true;
+    void getGoogleAgentSearchSettings().then((settings) => {
+      if (live) onAgentSearchRefresh(settings);
+    }).catch((reason: unknown) => {
+      if (live) setAgentError(reason instanceof Error ? reason.message : "Could not load Google Agent Search settings.");
+    });
+    return () => { live = false; };
+  }, [onAgentSearchRefresh]);
+
+  useEffect(() => {
+    if (!agentSearch) return;
+    setAgentProject(agentSearch.project_id);
+    setAgentEngine(agentSearch.engine_id);
+    setAgentLocation(agentSearch.location);
+  }, [agentSearch]);
 
   const handleSaveKey = async () => {
     if (!key.trim()) return setError("Paste your Gemini API key first.");
@@ -67,8 +96,48 @@ export function SettingsPage({ model, onModelChange, gemini, onGeminiRefresh, on
     }
   };
 
+  const handleSaveAgent = async () => {
+    if (!agentKey.trim()) return setAgentError("Paste a Google Cloud API key first.");
+    if (!agentProject.trim() || !agentEngine.trim()) return setAgentError("Enter both the Google Cloud project ID and Agent Search app/engine ID.");
+    setSavingAgent(true);
+    setAgentError("");
+    try {
+      const settings = await saveGoogleAgentSearchSettings({
+        api_key: agentKey.trim(),
+        project_id: agentProject.trim(),
+        engine_id: agentEngine.trim(),
+        location: agentLocation,
+      });
+      onAgentSearchRefresh(settings);
+      setAgentKey("");
+      setShowAgentKey(false);
+      onToast("Google Agent Search settings saved in the OS credential vault. No query has been sent.");
+    } catch (reason) {
+      setAgentError(reason instanceof Error ? reason.message : "Could not save Google Agent Search settings.");
+    } finally {
+      setSavingAgent(false);
+    }
+  };
+
+  const handleRemoveAgent = async () => {
+    if (!window.confirm("Remove Google Agent Search credentials and configuration from this user's OS credential vault?")) return;
+    setRemovingAgent(true);
+    setAgentError("");
+    try {
+      const settings = await removeGoogleAgentSearchSettings();
+      onAgentSearchRefresh(settings);
+      setAgentKey("");
+      onToast("Google Agent Search credentials removed.");
+    } catch (reason) {
+      setAgentError(reason instanceof Error ? reason.message : "Could not remove Google Agent Search settings.");
+    } finally {
+      setRemovingAgent(false);
+    }
+  };
+
   const selectedModel = GEMINI_MODELS.find((item) => item.id === model) ?? GEMINI_MODELS[0];
   const environmentManaged = gemini?.key_source === "environment";
+  const agentEnvironmentManaged = agentSearch?.key_source === "environment";
 
   return (
     <div className="page-stack settings-page">
@@ -76,7 +145,7 @@ export function SettingsPage({ model, onModelChange, gemini, onGeminiRefresh, on
         <div>
           <div className="eyebrow"><Sparkles className="h-3.5 w-3.5" /> PREFERENCES</div>
           <h1 className="page-title">Settings<span className="text-violet">.</span></h1>
-          <p className="page-subtitle">Connect Gemini only if you want text refurbishment or grounded web search.</p>
+          <p className="page-subtitle">Gemini powers text refurbishment and grounded search; Google Agent Search can return direct results from your configured public sites.</p>
         </div>
       </div>
 
@@ -109,6 +178,50 @@ export function SettingsPage({ model, onModelChange, gemini, onGeminiRefresh, on
           {error ? <p className="form-error" role="alert">{error}</p> : null}
           <div className="privacy-callout"><ShieldCheck className="h-4 w-4 shrink-0 text-violet" /><p>Transcription stays local. Refurbishment sends transcript text only after you click <strong>Refurbish with Gemini</strong>. Voice search first transcribes with local Whisper; only the query text is sent to Google after you click Search.</p></div>
           <a className="external-link" href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">Get a Gemini API key <ExternalLink className="h-3.5 w-3.5" /></a>
+        </div>
+      </section>
+
+      <section className="settings-card">
+        <div className="settings-card-head">
+          <div className="flex items-center gap-3"><span className="settings-icon"><Globe2 className="h-4 w-4" /></span><div><h2>Google Agent Search</h2><p>Direct structured results · searches the public sites in your configured Agent Search app</p></div></div>
+          {!agentSearch ? <Badge variant="outline">CHECKING…</Badge> : <Badge variant="outline" className={agentSearch.configured ? "status-good" : ""}>{agentSearch.configured ? "CONFIGURED" : "NOT SET UP"}</Badge>}
+        </div>
+        <div className="settings-card-body">
+          {agentEnvironmentManaged ? (
+            <div className="notice-card"><ShieldCheck className="h-4 w-4 text-violet" /><p>This provider is managed through <code>FORMA_AGENT_SEARCH_*</code> environment variables. Secret values are not displayed in Forma; update the environment variables to rotate or remove them.</p></div>
+          ) : (
+            <>
+              <label htmlFor="agent-search-project" className="field-label">Google Cloud project ID</label>
+              <input id="agent-search-project" className="text-field" value={agentProject} onChange={(event) => setAgentProject(event.target.value)} placeholder="my-cloud-project" autoComplete="off" spellCheck={false} disabled={!agentSearch?.vault_available || savingAgent} />
+              <label htmlFor="agent-search-engine" className="field-label">Agent Search app / engine ID</label>
+              <input id="agent-search-engine" className="text-field" value={agentEngine} onChange={(event) => setAgentEngine(event.target.value)} placeholder="my-public-sites-app" autoComplete="off" spellCheck={false} disabled={!agentSearch?.vault_available || savingAgent} />
+              <label htmlFor="agent-search-location" className="field-label">App location</label>
+              <select id="agent-search-location" className="select-control model-select" value={agentLocation} onChange={(event) => setAgentLocation(event.target.value as "global" | "us" | "eu")} disabled={!agentSearch?.vault_available || savingAgent}>
+                <option value="global">global</option><option value="us">us</option><option value="eu">eu</option>
+              </select>
+              <label htmlFor="agent-search-key" className="field-label">Google Cloud API key</label>
+              <div className="key-field">
+                <input id="agent-search-key" type={showAgentKey ? "text" : "password"} value={agentKey} onChange={(event) => setAgentKey(event.target.value)} autoComplete="new-password" spellCheck={false} placeholder={agentSearch?.configured ? "Saved key hidden — paste a replacement to rotate it" : "Paste an API key restricted to Discovery Engine"} disabled={!agentSearch?.vault_available || savingAgent} />
+                <button type="button" className="icon-action" aria-label={showAgentKey ? "Hide Google API key" : "Show Google API key"} onClick={() => setShowAgentKey((value) => !value)} disabled={!agentSearch?.vault_available}><>{showAgentKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</></button>
+              </div>
+              <div className="key-actions">
+                <Button onClick={() => void handleSaveAgent()} disabled={savingAgent || !agentKey.trim() || !agentSearch?.vault_available} className="gap-2">
+                  {savingAgent ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+                  {savingAgent ? "Saving securely…" : "Save Google Search setup"}
+                </Button>
+                {agentSearch?.configured ? <Button variant="outline" onClick={() => void handleRemoveAgent()} disabled={removingAgent} className="gap-2">{removingAgent ? <Loader2 className="h-4 w-4 animate-spin" /> : null}Remove saved setup</Button> : null}
+              </div>
+              <p className="field-help">Create a Google Cloud Agent Search app with a public website data store, enable the Discovery Engine API, and use the project ID, app/engine ID, location, and an API key restricted to Discovery Engine (without an HTTP-referrer restriction; this call is server-side). After you choose Google Search and click Search, the query is sent by the local backend; the key is never returned to the browser. Saving setup does not validate the app or run/bill a query; the first search tests the connection.</p>
+              {!agentSearch?.vault_available ? <div className="notice-card notice-warning"><KeyRound className="h-4 w-4" /><p>The OS credential vault is unavailable here, so key entry is disabled. On Windows, use Credential Manager; for managed installs set <code>FORMA_AGENT_SEARCH_API_KEY</code>, <code>FORMA_AGENT_SEARCH_PROJECT_ID</code>, and <code>FORMA_AGENT_SEARCH_ENGINE_ID</code> (optional <code>FORMA_AGENT_SEARCH_LOCATION</code>).</p></div> : null}
+            </>
+          )}
+          {agentError ? <p className="form-error" role="alert">{agentError}</p> : null}
+          <div className="notice-card"><Globe2 className="h-4 w-4 text-violet" /><p>Google Agent Search returns clean title, URL, and snippet cards from the public websites indexed by your configured app; it is not unrestricted Google Web Search. Cloud quotas and charges can apply. Review the setup and current pricing before enabling it.</p></div>
+          <div className="settings-links">
+            <a className="external-link" href="https://docs.cloud.google.com/generative-ai-app-builder/docs/try-enterprise-search" target="_blank" rel="noreferrer">Create a public-site Search app <ExternalLink className="h-3.5 w-3.5" /></a>
+            <a className="external-link" href="https://docs.cloud.google.com/generative-ai-app-builder/docs/preview-search-results" target="_blank" rel="noreferrer">Search API setup <ExternalLink className="h-3.5 w-3.5" /></a>
+            <a className="external-link" href="https://cloud.google.com/generative-ai-app-builder/pricing" target="_blank" rel="noreferrer">Agent Search pricing <ExternalLink className="h-3.5 w-3.5" /></a>
+          </div>
         </div>
       </section>
 

@@ -30,6 +30,10 @@ function unregisteredRawStub(): Plugin {
   };
 }
 
+const previewMode = process.env.FORMA_PREVIEW_MODE === "1";
+const devHost = previewMode ? "0.0.0.0" : "127.0.0.1";
+const allowedHosts = previewMode ? [".e2b.app"] : [];
+
 export default defineConfig({
   plugins: [react(), tailwindcss(), unregisteredRawStub(), ...apiPlugin()],
   resolve: {
@@ -50,6 +54,8 @@ export default defineConfig({
       { find: "@", replacement: new URL("./src", import.meta.url).pathname },
     ],
   },
-  server: { host: "0.0.0.0", port: 5173, allowedHosts: true },
-  preview: { host: "0.0.0.0", port: 4173, allowedHosts: true },
+  // Keep the key-bearing local UI loopback-only by default. Arena's preview
+  // runs opt in to the public proxy host explicitly via FORMA_PREVIEW_MODE.
+  server: { host: devHost, port: 5173, allowedHosts },
+  preview: { host: devHost, port: 4173, allowedHosts },
 });

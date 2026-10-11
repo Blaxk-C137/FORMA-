@@ -95,6 +95,22 @@ export function stubApiPlugin(): Plugin {
       });
     }
 
+    if (req.method === "GET" && url === "/api/agent-search/settings") {
+      const configured = Boolean(process.env.FORMA_AGENT_SEARCH_API_KEY && process.env.FORMA_AGENT_SEARCH_PROJECT_ID && process.env.FORMA_AGENT_SEARCH_ENGINE_ID);
+      return json(res, 200, {
+        configured,
+        vault_available: false,
+        key_source: configured ? "environment" : null,
+        project_id: process.env.FORMA_AGENT_SEARCH_PROJECT_ID ?? "",
+        engine_id: process.env.FORMA_AGENT_SEARCH_ENGINE_ID ?? "",
+        location: process.env.FORMA_AGENT_SEARCH_LOCATION ?? "global",
+      });
+    }
+
+    if (url.startsWith("/api/agent-search/")) {
+      return json(res, 503, { detail: "Google Agent Search needs the real Python backend and its OS credential vault or configured environment variables." });
+    }
+
     if (url.startsWith("/api/gemini/")) {
       return json(res, 503, {
         detail: "Gemini needs the Python backend and an OS credential vault. Install/start the real backend, then add the key in Settings.",

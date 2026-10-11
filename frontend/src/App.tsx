@@ -15,6 +15,7 @@ import { SpeechPanel } from "@/components/SpeechPanel";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { TranscriptCard } from "@/components/TranscriptCard";
 import { useSpeechApi } from "@/hooks/useSpeechApi";
+import { getGoogleAgentSearchSettings, type GoogleAgentSearchSettings } from "@/lib/agentSearchApi";
 import { getGeminiSettings, refurbishText, type GeminiSettings } from "@/lib/geminiApi";
 import { exportSessions, exportTranscript, type ExportFormat } from "@/lib/export";
 import { clearActiveSession, formatSessionTitle, persistHistory, persistSession, readActiveSession, readHistory, sessionWordCount, type SessionRecord } from "@/lib/history";
@@ -86,6 +87,7 @@ export default function App() {
   const [sessionSegmentBase, setSessionSegmentBase] = useState(initial?.segmentCount ?? 0);
   const [sessionToken, setSessionToken] = useState(0);
   const [geminiSettings, setGeminiSettings] = useState<GeminiSettings | null>(null);
+  const [agentSearchSettings, setAgentSearchSettings] = useState<GoogleAgentSearchSettings | null>(null);
   const [geminiModel, setGeminiModel] = useState(readGeminiModel);
   const { status, checking, transcribe, synthesize } = useSpeechApi();
 
@@ -104,11 +106,14 @@ export default function App() {
   }, []);
 
   const onGeminiRefresh = useCallback((settings: GeminiSettings) => setGeminiSettings(settings), []);
+  const onAgentSearchRefresh = useCallback((settings: GoogleAgentSearchSettings) => setAgentSearchSettings(settings), []);
 
   useEffect(() => {
     const refresh = async () => {
       try { setGeminiSettings(await getGeminiSettings()); }
       catch { setGeminiSettings({ configured: false, vault_available: false, model_default: "gemini-3.5-flash-lite" }); }
+      try { setAgentSearchSettings(await getGoogleAgentSearchSettings()); }
+      catch { setAgentSearchSettings({ configured: false, vault_available: false, key_source: null, project_id: "", engine_id: "", location: "global" }); }
     };
     void refresh();
   }, []);
@@ -394,11 +399,11 @@ export default function App() {
             </div>
           ) : null}
 
-          {page === "search" ? <VoiceSearchPage geminiConfigured={geminiConfigured} model={geminiModel} onGoToSettings={() => navigate("settings")} onToast={showToast} /> : null}
+          {page === "search" ? <VoiceSearchPage geminiConfigured={geminiConfigured} googleSearchConfigured={Boolean(agentSearchSettings?.configured)} model={geminiModel} onGoToSettings={() => navigate("settings")} onToast={showToast} /> : null}
 
           {page === "history" ? <HistoryPage sessions={history} onOpen={openHistorySession} onDelete={removeHistoryItem} onClear={clearHistory} onExport={(rows, format) => { exportSessions(rows, format); showToast(format === "pdf" ? "Print dialog opened; choose Save as PDF." : "History exported."); }} /> : null}
 
-          {page === "settings" ? <SettingsPage model={geminiModel} onModelChange={changeModel} gemini={geminiSettings} onGeminiRefresh={onGeminiRefresh} onToast={showToast} onTerms={() => navigate("terms")} /> : null}
+          {page === "settings" ? <SettingsPage model={geminiModel} onModelChange={changeModel} gemini={geminiSettings} onGeminiRefresh={onGeminiRefresh} agentSearch={agentSearchSettings} onAgentSearchRefresh={onAgentSearchRefresh} onToast={showToast} onTerms={() => navigate("terms")} /> : null}
 
           {page === "terms" ? <TermsPage onBackToSettings={() => navigate("settings")} /> : null}
         </main>

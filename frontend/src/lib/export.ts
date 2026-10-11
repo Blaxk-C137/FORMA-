@@ -14,9 +14,11 @@ export const EXPORT_FORMATS: { id: ExportFormat; label: string }[] = [
 export type SearchExport = {
   query: string;
   text: string;
+  provider: string;
   model: string;
+  total?: number;
   createdAt: string;
-  sources: { title: string; uri: string }[];
+  sources: { title: string; uri: string; snippet?: string }[];
 };
 
 function escHtml(s: string): string {
@@ -117,27 +119,30 @@ export function exportSessions(rows: SessionRecord[], format: ExportFormat): voi
 
 export function exportSearchResult(result: SearchExport, format: ExportFormat): void {
   const title = `Search · ${result.query}`;
-  const sourcesText = result.sources.map((source, index) => `[${index + 1}] ${source.title} — ${source.uri}`).join("\n");
   const created = new Date(result.createdAt).toLocaleString();
+  const provider = result.provider || result.model;
+  const totalLabel = typeof result.total === "number" ? ` · ${result.sources.length} shown of ${result.total}` : "";
+  const metadata = `${created} · ${provider}${totalLabel}`;
+  const sourcesText = result.sources.map((source, index) => `[${index + 1}] ${source.title} — ${source.uri}${source.snippet ? `\n    ${source.snippet}` : ""}`).join("\n");
   if (format === "pdf") {
-    const sourcesHtml = result.sources.map((source, index) => `<p class="source">[${index + 1}] <a href="${escHtml(source.uri)}">${escHtml(source.title)}</a></p>`).join("");
-    printDocument(title, `<h1>${escHtml(title)}</h1><p class="meta">${escHtml(created)} · ${escHtml(result.model)}</p><pre>${escHtml(result.text)}</pre><h2>Sources</h2>${sourcesHtml}`);
+    const sourcesHtml = result.sources.map((source, index) => `<p class="source">[${index + 1}] <a href="${escHtml(source.uri)}">${escHtml(source.title)}</a>${source.snippet ? `<br><span>${escHtml(source.snippet)}</span>` : ""}</p>`).join("");
+    printDocument(title, `<h1>${escHtml(title)}</h1><p class="meta">${escHtml(metadata)}</p>${result.text ? `<pre>${escHtml(result.text)}</pre>` : ""}<h2>Results / sources</h2>${sourcesHtml || "<p>No result links were returned.</p>"}`);
     return;
   }
   if (format === "json") {
-    saveFile(JSON.stringify({ query: result.query, answer: result.text, sources: result.sources, model: result.model, exportedAt: new Date().toISOString() }, null, 2), "application/json;charset=utf-8", `${slug(title)}.json`);
+    saveFile(JSON.stringify({ query: result.query, provider, answer: result.text || undefined, results: result.sources, totalResults: result.total, model: result.model, exportedAt: new Date().toISOString() }, null, 2), "application/json;charset=utf-8", `${slug(title)}.json`);
   } else if (format === "csv") {
-    const rows = [["query", "answer", "source_title", "source_url", "model", "created_at"]];
-    if (result.sources.length) result.sources.forEach((source) => rows.push([result.query, result.text, source.title, source.uri, result.model, created]));
-    else rows.push([result.query, result.text, "", "", result.model, created]);
+    const rows: unknown[][] = [["query", "provider", "answer", "source_title", "source_url", "snippet", "total_results", "created_at"]];
+    if (result.sources.length) result.sources.forEach((source) => rows.push([result.query, provider, result.text, source.title, source.uri, source.snippet ?? "", result.total ?? "", created]));
+    else rows.push([result.query, provider, result.text, "", "", "", result.total ?? "", created]);
     saveFile(rows.map((row) => row.map(csvCell).join(",")).join("\r\n"), "text/csv;charset=utf-8", `${slug(title)}.csv`);
   } else if (format === "html") {
-    const sourcesHtml = result.sources.map((source, index) => `<p><a href="${escHtml(source.uri)}">[${index + 1}] ${escHtml(source.title)}</a></p>`).join("");
-    const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${escHtml(title)}</title><style>body{font:16px/1.7 system-ui,Arial;max-width:820px;margin:40px auto;padding:0 24px}pre{font:inherit;white-space:pre-wrap}a{color:#562da4}</style></head><body><h1>${escHtml(title)}</h1><small>${escHtml(created)} · ${escHtml(result.model)}</small><pre>${escHtml(result.text)}</pre><h2>Sources</h2>${sourcesHtml}</body></html>`;
+    const sourcesHtml = result.sources.map((source, index) => `<article><p><a href="${escHtml(source.uri)}">[${index + 1}] ${escHtml(source.title)}</a></p>${source.snippet ? `<p>${escHtml(source.snippet)}</p>` : ""}</article>`).join("");
+    const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${escHtml(title)}</title><style>body{font:16px/1.7 system-ui,Arial;max-width:820px;margin:40px auto;padding:0 24px}pre{font:inherit;white-space:pre-wrap}a{color:#562da4}article{margin:18px 0;border-bottom:1px solid #ddd}</style></head><body><h1>${escHtml(title)}</h1><small>${escHtml(metadata)}</small>${result.text ? `<pre>${escHtml(result.text)}</pre>` : ""}<h2>Results / sources</h2>${sourcesHtml || "<p>No result links were returned.</p>"}</body></html>`;
     saveFile(html, "text/html;charset=utf-8", `${slug(title)}.html`);
   } else if (format === "md") {
-    saveFile(`# ${title}\n\n_${created} · ${result.model}_\n\n${result.text}\n\n## Sources\n\n${sourcesText || "(No source links were returned.)"}\n`, "text/markdown;charset=utf-8", `${slug(title)}.md`);
+    saveFile(`# ${title}\n\n_${metadata}_\n\n${result.text ? `${result.text}\n\n` : ""}## Results / sources\n\n${sourcesText || "(No result links were returned.)"}\n`, "text/markdown;charset=utf-8", `${slug(title)}.md`);
   } else {
-    saveFile(`${title}\n${created} · ${result.model}\n\n${result.text}\n\nSources\n${sourcesText || "(No source links were returned.)"}\n`, "text/plain;charset=utf-8", `${slug(title)}.txt`);
+    saveFile(`${title}\n${metadata}\n\n${result.text ? `${result.text}\n\n` : ""}Results / sources\n${sourcesText || "(No result links were returned.)"}\n`, "text/plain;charset=utf-8", `${slug(title)}.txt`);
   }
 }

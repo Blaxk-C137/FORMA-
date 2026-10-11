@@ -262,6 +262,9 @@
 .settings-card-body { display: flex; flex-direction: column; gap: 13px; padding: 18px 19px 20px; }
 .field-label { color: var(--foreground); font-size: 10px; font-weight: 650; }
 .field-help { margin: 0; color: var(--muted-foreground); font-size: 10px; line-height: 1.65; }
+.text-field { width: min(100%, 540px); min-height: 40px; border: 1px solid var(--border); border-radius: 9px; background: color-mix(in srgb, var(--muted) 35%, var(--card)); color: var(--foreground); outline: 0; padding: 0 12px; font-size: 12px; }
+.text-field:focus-visible { border-color: var(--ring); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 30%, transparent); }
+.text-field::placeholder { color: var(--muted-foreground); }
 .key-field { display: flex; align-items: center; gap: 5px; border: 1px solid var(--border); border-radius: 9px; background: color-mix(in srgb, var(--muted) 35%, var(--card)); padding-right: 5px; }
 .key-field:focus-within { border-color: var(--ring); }
 .key-field input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--foreground); padding: 10px 12px; font-size: 12px; }
@@ -299,6 +302,7 @@
 /* Voice web search */
 .search-compose { padding: 18px; }
 .search-mic-row { display: flex; align-items: center; gap: 14px; margin-bottom: 17px; }
+.search-provider-row { display: grid; gap: 7px; width: min(100%, 640px); margin-bottom: 16px; }
 .search-wave { display: flex; min-width: 0; flex: 1; align-items: center; height: 68px; overflow: hidden; border: 1px solid var(--border); border-radius: 12px; background: color-mix(in srgb, var(--muted) 40%, transparent); padding: 4px 10px; }
 .search-wave.is-live { border-color: var(--violet); box-shadow: 0 0 0 2px color-mix(in srgb, var(--violet) 18%, transparent); }
 .search-form { display: flex; flex-direction: column; gap: 8px; }
@@ -322,6 +326,15 @@
 .source-number { display: grid; width: 18px; height: 18px; flex: 0 0 18px; place-items: center; border-radius: 50%; background: var(--muted); color: var(--violet); font-size: 9px; }
 .grounded-sources li a { display: flex; align-items: center; gap: 6px; overflow-wrap: anywhere; color: var(--violet); text-decoration: none; }
 .grounded-sources li a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.agent-search-results { border-top: 1px solid var(--border); padding-top: 14px; }
+.agent-search-results h3 { margin: 0 0 10px; color: var(--muted-foreground); font-size: 9px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.agent-search-results ol { display: grid; gap: 9px; margin: 0; padding: 0; list-style: none; }
+.agent-result-card { display: grid; grid-template-columns: 18px minmax(0,1fr); gap: 10px; border: 1px solid var(--border); border-radius: 11px; background: color-mix(in srgb, var(--muted) 28%, var(--card)); padding: 12px; }
+.agent-result-card a { display: inline-flex; align-items: center; gap: 6px; color: var(--violet); font-size: 12px; font-weight: 620; text-decoration: none; overflow-wrap: anywhere; }
+.agent-result-card a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.agent-result-card p { margin: 7px 0 0; color: var(--foreground); font-size: 11px; line-height: 1.65; }
+.agent-result-card .agent-result-empty { color: var(--muted-foreground); font-style: italic; }
+.agent-result-domain { margin-top: 3px; color: var(--muted-foreground); font-size: 9px; }
 .search-query-note { margin: 12px 0 0; color: var(--muted-foreground); font-size: 9px; line-height: 1.5; }
 .suggestions-wrap { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 13px; }
 .google-search-suggestions { margin-top: 7px; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; background: var(--card); padding: 9px; }
