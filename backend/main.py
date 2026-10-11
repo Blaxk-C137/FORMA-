@@ -1,4 +1,4 @@
-"""Forma local speech backend — Whisper Tiny STT + Piper TTS.
+"""Forma local speech backend — Whisper Tiny + Piper + opt-in Gemini tools.
 
 Run directly:            python main.py
 Or via uvicorn:          uvicorn main:app --host 127.0.0.1 --port 8787
@@ -10,19 +10,24 @@ import os
 import time
 
 from fastapi import FastAPI, File, Form, UploadFile
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
+from gemini import CredentialVaultUnavailable, GeminiError, get_settings as gemini_settings
+from gemini import refurbish as gemini_refurbish
+from gemini import remove_key as remove_gemini_key
+from gemini import save_key as save_gemini_key
+from gemini import search as gemini_search
 from stt import stt
 from tts import DEFAULT_VOICE, tts
 
-app = FastAPI(title="Forma speech backend")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app = FastAPI(title="Forma local voice backend")
+# Browser traffic goes through the same-origin Vite proxy. Keep CORS disabled on
+# this loopback-only service, especially for its secret-bearing Gemini routes.
+
+
+def _gemini_error(exc: GeminiError) -> JSONResponse:
+    code = 503 if isinstance(exc, CredentialVaultUnavailable) else 400
+    return JSONResponse({"detail": str(exc)}, status_code=code)
 
 
 @app.on_event("startup")
@@ -81,6 +86,43 @@ async def synthesize(payload: dict):
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"detail": f"Speech synthesis failed: {exc}"}, status_code=500)
     return Response(wav, media_type="audio/wav")
+
+
+@app.get("/api/gemini/settings")
+def get_gemini_settings():
+    return gemini_settings()
+
+
+@app.post("/api/gemini/key")
+def put_gemini_key(payload: dict):
+    try:
+        return save_gemini_key(str(payload.get("api_key", "")))
+    except GeminiError as exc:
+        return _gemini_error(exc)
+
+
+@app.delete("/api/gemini/key")
+def delete_gemini_key():
+    try:
+        return remove_gemini_key()
+    except GeminiError as exc:
+        return _gemini_error(exc)
+
+
+@app.post("/api/gemini/refurbish")
+def refurbish_text(payload: dict):
+    try:
+        return gemini_refurbish(str(payload.get("text", "")), str(payload.get("model", "")))
+    except GeminiError as exc:
+        return _gemini_error(exc)
+
+
+@app.post("/api/gemini/search")
+def voice_web_search(payload: dict):
+    try:
+        return gemini_search(str(payload.get("query", "")), str(payload.get("model", "")))
+    except GeminiError as exc:
+        return _gemini_error(exc)
 
 
 if __name__ == "__main__":
