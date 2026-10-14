@@ -165,7 +165,6 @@
 .sidebar-local-note { margin-top: 9px; color: var(--muted-foreground); font-size: 10px; line-height: 1.6; }
 .status-dot { display: inline-block; width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: #888; }
 .status-dot.online { background: #a5e45a; box-shadow: 0 0 10px rgba(165, 228, 90, .55); }
-.status-dot.stub { background: #e7a554; box-shadow: 0 0 10px rgba(231, 165, 84, .4); }
 
 .workspace-shell { min-height: 100vh; margin-left: 232px; }
 .topbar {
@@ -186,7 +185,6 @@
 .topbar-context { color: var(--muted-foreground); font-size: 11px; letter-spacing: .03em; }
 .topbar-actions { display: flex; align-items: center; gap: 10px; }
 .model-status { display: inline-flex; align-items: center; gap: 7px; height: 27px; border-radius: 30px; color: var(--muted-foreground); font-size: 9px; letter-spacing: .08em; }
-.stub-status { border-color: rgba(231,165,84,.45); color: #dba75f; }
 .restart-button { gap: 7px; }
 .mobile-nav { display: none; }
 .workspace-main { width: min(1480px, 100%); margin: 0 auto; padding: 30px clamp(18px, 3vw, 42px) 48px; }

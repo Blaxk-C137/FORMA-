@@ -9,9 +9,11 @@ import wave
 
 import numpy as np
 
-MODEL_DIR = os.environ.get(
-    "FORMA_STT_MODEL",
-    os.path.expanduser(os.path.join("~", ".cache", "forma", "models", "whisper-tiny")),
+MODELS_ROOT = os.path.expanduser(
+    os.environ.get("FORMA_MODELS_DIR", os.path.join("~", ".cache", "forma", "models"))
+)
+MODEL_DIR = os.path.expanduser(
+    os.environ.get("FORMA_STT_MODEL", os.path.join(MODELS_ROOT, "whisper-tiny"))
 )
 TARGET_SR = 16000
 

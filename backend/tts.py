@@ -6,10 +6,10 @@ import os
 import threading
 import wave
 
-MODELS_DIR = os.environ.get(
-    "FORMA_TTS_DIR",
-    os.path.expanduser(os.path.join("~", ".cache", "forma", "models")),
+MODELS_ROOT = os.path.expanduser(
+    os.environ.get("FORMA_MODELS_DIR", os.path.join("~", ".cache", "forma", "models"))
 )
+MODELS_DIR = os.path.expanduser(os.environ.get("FORMA_TTS_DIR", MODELS_ROOT))
 
 # UI voice ids -> Piper voice model names (files: <name>.onnx + <name>.onnx.json)
 VOICES = {

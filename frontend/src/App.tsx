@@ -200,7 +200,7 @@ export default function App() {
       transcribedCountRef.current = index + 1;
       setTranscribedCount(index + 1);
       appended += 1;
-      setTextStatus(status.stub ? "Stub transcription · dummy backend" : "Transcribed locally with Whisper");
+      setTextStatus("Transcribed locally with Whisper");
     }
     setTranscribing(false);
     if (appended) showToast(`${appended} new ${appended === 1 ? "part" : "parts"} transcribed and appended.`);
@@ -251,7 +251,7 @@ export default function App() {
     const url = URL.createObjectURL(response.data.audio);
     outUrlRef.current = url;
     setOutUrl(url);
-    setNote(status.stub ? "Dummy tone generated (stub), not speech." : "Your local audio is ready.");
+    setNote("Your local audio is ready.");
   }, [showToast, status, synthesize]);
 
   const saveActiveSessionNow = useCallback(() => {
@@ -349,13 +349,11 @@ export default function App() {
   const changeModel = useCallback((model: string) => setGeminiModel(model), []);
   const geminiConfigured = Boolean(geminiSettings?.configured);
   const pendingCount = Math.max(0, audioSegments.length - transcribedCount);
-  const statusLabel = status?.stub
-    ? "DUMMY MODE"
-    : status?.stt_ready && status?.tts_ready
-      ? "LOCAL MODELS"
-      : checking
-        ? "CONNECTING…"
-        : "MODELS OFFLINE";
+  const statusLabel = status?.stt_ready && status?.tts_ready
+    ? "LOCAL MODELS"
+    : checking
+      ? "CONNECTING…"
+      : "MODELS OFFLINE";
 
   return (
     <div className="app-shell min-h-screen">
@@ -367,7 +365,7 @@ export default function App() {
         <nav className="sidebar-nav">
           {NAV.map(({ id, label, Icon }) => <button key={id} type="button" className={`sidebar-link ${page === id ? "active" : ""}`} aria-current={page === id ? "page" : undefined} onClick={() => navigate(id)}><Icon className="h-[18px] w-[18px]" /><span>{label}</span>{id === "history" && history.length ? <small>{history.length}</small> : null}</button>)}
         </nav>
-        <div className="sidebar-bottom"><div className="sidebar-status"><span className={`status-dot ${status?.stub ? "stub" : status?.stt_ready ? "online" : ""}`} />{statusLabel}</div><div className="sidebar-local-note">Whisper + Piper run locally.<br />Tavily search · Gemini optional.</div></div>
+        <div className="sidebar-bottom"><div className="sidebar-status"><span className={`status-dot ${status?.stt_ready && status?.tts_ready ? "online" : ""}`} />{statusLabel}</div><div className="sidebar-local-note">Whisper + Piper run locally.<br />Tavily search · Gemini optional.</div></div>
       </aside>
 
       <div className="workspace-shell">
@@ -375,7 +373,7 @@ export default function App() {
           <div className="topbar-brand-mobile"><span className="brand-mark small"><i /><i /><i /><i /></span><span className="wordmark">forma<span>®</span></span></div>
           <div className="topbar-context">{NAV.find((item) => item.id === page)?.label ?? "Voice studio"}</div>
           <div className="topbar-actions">
-            <Badge variant="outline" className={`model-status ${status?.stub ? "stub-status" : ""}`}><span className={`status-dot ${status?.stub ? "stub" : status?.stt_ready ? "online" : ""}`} />{statusLabel}</Badge>
+            <Badge variant="outline" className="model-status"><span className={`status-dot ${status?.stt_ready && status?.tts_ready ? "online" : ""}`} />{statusLabel}</Badge>
             {page === "studio" ? <Button variant="outline" size="sm" onClick={restartSession} className="restart-button" title="Save to history and clear the current session"><RotateCcw className="h-3.5 w-3.5" /><span>Restart session</span></Button> : null}
             <ThemeToggle />
           </div>

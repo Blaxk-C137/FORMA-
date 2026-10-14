@@ -1,50 +1,77 @@
-"""Download the local models: Whisper Tiny + Piper voices.
+"""Download the local Whisper Tiny + Piper models into their configured paths.
 
-Weights live in FORMA_MODELS_DIR (default ~/.cache/forma/models) — cache, not
-source. Run once after installing requirements:  python download_models.py
+Default paths live under ~/.cache/forma/models. Set FORMA_MODELS_DIR to move the
+shared model root, FORMA_STT_MODEL to override Whisper's directory, or
+FORMA_TTS_DIR to override the Piper voice directory. Run once after installing
+requirements: python download_models.py.
 """
 from __future__ import annotations
 
 import os
 import subprocess
 import sys
+from pathlib import Path
 
-MODELS = os.path.expanduser(
+MODELS_ROOT = Path(os.path.expanduser(
     os.environ.get("FORMA_MODELS_DIR", os.path.join("~", ".cache", "forma", "models"))
-)
+)).resolve()
+STT_DIR = Path(os.path.expanduser(
+    os.environ.get("FORMA_STT_MODEL", str(MODELS_ROOT / "whisper-tiny"))
+)).resolve()
+TTS_DIR = Path(os.path.expanduser(
+    os.environ.get("FORMA_TTS_DIR", str(MODELS_ROOT))
+)).resolve()
 VOICES = ["en_US-lessac-medium", "en_GB-alba-medium"]
 
 
-def main() -> None:
-    os.makedirs(MODELS, exist_ok=True)
+def whisper_ready() -> bool:
+    return (STT_DIR / "config.json").is_file() and (STT_DIR / "model.safetensors").is_file()
 
-    if os.path.exists(os.path.join(MODELS, "whisper-tiny", "config.json")):
-        print("  whisper-tiny already present")
+
+def voice_ready(name: str) -> bool:
+    return (TTS_DIR / f"{name}.onnx").is_file() and (TTS_DIR / f"{name}.onnx.json").is_file()
+
+
+def main() -> None:
+    STT_DIR.mkdir(parents=True, exist_ok=True)
+    TTS_DIR.mkdir(parents=True, exist_ok=True)
+    print(f"[forma:models] Whisper directory: {STT_DIR}", flush=True)
+    print(f"[forma:models] Piper directory: {TTS_DIR}", flush=True)
+
+    if whisper_ready():
+        print("[forma:models] Whisper Tiny weights and config already present", flush=True)
     else:
-        print("→ downloading openai/whisper-tiny (safetensors only) …")
+        print("[forma:models] Downloading openai/whisper-tiny (safetensors only)…", flush=True)
         from huggingface_hub import snapshot_download
 
         snapshot_download(
             "openai/whisper-tiny",
-            local_dir=os.path.join(MODELS, "whisper-tiny"),
-            # one weights format only — .bin would duplicate model.safetensors (~150 MB)
+            local_dir=str(STT_DIR),
             ignore_patterns=["*.bin", "*.h5", "*.msgpack"],
         )
-        print("  whisper-tiny ready")
+        if not whisper_ready():
+            raise RuntimeError(
+                f"Whisper download completed, but config.json/model.safetensors are missing from {STT_DIR}. "
+                "Check the Hugging Face download log and disk space."
+            )
+        print("[forma:models] Whisper Tiny verified", flush=True)
 
     for voice in VOICES:
-        if os.path.exists(os.path.join(MODELS, f"{voice}.onnx")):
-            print(f"  {voice} already present")
+        if voice_ready(voice):
+            print(f"[forma:models] Piper voice {voice} already present", flush=True)
             continue
-        print(f"→ downloading piper voice {voice} …")
+        print(f"[forma:models] Downloading Piper voice {voice}…", flush=True)
         subprocess.check_call(
             [sys.executable, "-m", "piper.download_voices", voice],
-            cwd=MODELS,
+            cwd=str(TTS_DIR),
         )
-    print("  piper voices ready")
+        if not voice_ready(voice):
+            raise RuntimeError(
+                f"Piper download completed, but {voice}.onnx and its .onnx.json config are not both present in {TTS_DIR}."
+            )
+        print(f"[forma:models] Piper voice {voice} verified", flush=True)
 
-    listing = sorted(os.listdir(MODELS))
-    print(f"\ndone. models dir now contains: {', '.join(listing)}")
+    print("[forma:models] All required local speech models are present.", flush=True)
 
 
 if __name__ == "__main__":

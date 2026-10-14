@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import time
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import JSONResponse, Response
@@ -21,7 +22,16 @@ from tavily_search import TavilySearchApiError, TavilySearchError, search as tav
 from stt import stt
 from tts import DEFAULT_VOICE, tts
 
-app = FastAPI(title="Forma local voice backend")
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    if stt.available:
+        stt.warm_up()
+    if tts.available:
+        tts.warm_up()
+    yield
+
+
+app = FastAPI(title="Forma local voice backend", lifespan=lifespan)
 # Browser traffic goes through the same-origin Vite proxy. Keep CORS disabled on
 # this loopback-only service, especially for its secret-bearing Gemini routes.
 
@@ -50,14 +60,6 @@ def _tavily_error(exc: TavilySearchError) -> JSONResponse:
     return JSONResponse({"detail": str(exc)}, status_code=503 if "reach Tavily" in str(exc) else 400)
 
 
-@app.on_event("startup")
-def _warm() -> None:
-    if stt.available:
-        stt.warm_up()
-    if tts.available:
-        tts.warm_up()
-
-
 @app.get("/api/status")
 def status():
     return {
@@ -65,7 +67,6 @@ def status():
         "tts_ready": tts.available,
         "stt_model": stt.model_name,
         "tts_model": tts.model_name,
-        "stub": False,
         "stt_loaded": stt.loaded,
         "tts_loaded": tts.loaded,
         **({"stt_error": stt.error} if stt.error else {}),
@@ -87,7 +88,6 @@ async def transcribe(audio: UploadFile = File(...), language: str = Form("auto")
         "text": text,
         "language": language,
         "duration_ms": int((time.perf_counter() - started) * 1000),
-        "stub": False,
     }
 
 

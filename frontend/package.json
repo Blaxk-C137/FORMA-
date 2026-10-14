@@ -4,11 +4,12 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/setup-ml.mjs && node scripts/verify-ml.mjs && vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview",
-    "postinstall": "node scripts/setup-ml.mjs",
-    "setup:ml": "node scripts/setup-ml.mjs"
+    "preview": "node scripts/verify-ml.mjs && vite preview",
+    "postinstall": "node scripts/setup-ml.mjs && node scripts/verify-ml.mjs",
+    "setup:ml": "node scripts/setup-ml.mjs && node scripts/verify-ml.mjs",
+    "verify:ml": "node scripts/verify-ml.mjs"
   },
   "dependencies": {
     "@designcodeio/threeui": "^1.2.0",

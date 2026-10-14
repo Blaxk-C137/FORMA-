@@ -268,7 +268,7 @@ export function VoiceSearchPage({ geminiConfigured, model, onGoToSettings, onToa
         </section>
       ) : null}
 
-      <p className="page-footnote">{status?.stub ? "Speech input is running in clearly-labelled dummy mode." : "Search results are not stored in browser history. Leaving this page clears the result."} {status?.stt_ready ? "Local Whisper is ready." : checking ? "Checking Whisper…" : "Type a query if the local microphone backend is unavailable."}</p>
+      <p className="page-footnote">Search results are not stored in browser history. Leaving this page clears the result. {status?.stt_ready ? "Local Whisper is ready." : checking ? "Checking Whisper…" : "Type a query if the local microphone backend is unavailable."}</p>
     </div>
   );
 }

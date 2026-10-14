@@ -5,8 +5,6 @@ export type ApiStatus = {
   tts_ready: boolean;
   stt_model?: string;
   tts_model?: string;
-  /** True when the connected backend is the bundled dummy stub. */
-  stub?: boolean;
 };
 
 export type ApiResult<T> =
@@ -39,7 +37,6 @@ export function useSpeechApi() {
           tts_ready: Boolean(body.tts_ready),
           stt_model: typeof body.stt_model === "string" ? body.stt_model : undefined,
           tts_model: typeof body.tts_model === "string" ? body.tts_model : undefined,
-          stub: Boolean(body.stub),
         });
       })
       .catch(() => setStatus(null))

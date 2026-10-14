@@ -14,17 +14,17 @@ import { apiPlugin } from "./server/apiPlugin";
  */
 const UNREGISTERED_RAW = new Set(["recursive-erosion.html", "synthesis-orb.html"]);
 
-function unregisteredRawStub(): Plugin {
+function unregisteredRawEmpty(): Plugin {
   return {
-    name: "threeui-unregistered-raw-stub",
+    name: "threeui-unregistered-raw-empty",
     enforce: "pre",
     resolveId(source) {
       const m = source.match(/^\.\/sources\/([^?]+)\?raw$/);
-      if (m && UNREGISTERED_RAW.has(m[1])) return "\0threeui-stub:" + source;
+      if (m && UNREGISTERED_RAW.has(m[1])) return "\0threeui-empty:" + source;
       return null;
     },
     load(id) {
-      if (id.startsWith("\0threeui-stub:")) return 'export default "";';
+      if (id.startsWith("\0threeui-empty:")) return 'export default "";';
       return null;
     },
   };
@@ -35,7 +35,7 @@ const devHost = previewMode ? "0.0.0.0" : "127.0.0.1";
 const allowedHosts = previewMode ? [".e2b.app"] : [];
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), unregisteredRawStub(), ...apiPlugin()],
+  plugins: [react(), tailwindcss(), unregisteredRawEmpty(), ...apiPlugin()],
   resolve: {
     alias: [
       // The configured usage imports the package name; alias it to the

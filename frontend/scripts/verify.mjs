@@ -13,11 +13,16 @@ page.on("pageerror", (error) => errors.push(String(error)));
 
 await page.goto("http://localhost:5173/", { waitUntil: "domcontentloaded" });
 await page.waitForTimeout(450);
-const api = await (await fetch("http://localhost:5173/api/status")).json();
-const real = !api.stub;
+const statusResponse = await fetch("http://localhost:5173/api/status");
+const api = await statusResponse.json();
+if (!statusResponse.ok || api.stt_ready !== true || api.tts_ready !== true) {
+  await browser.close();
+  throw new Error(`Local ML backend is not ready; Playwright verification requires real Whisper and Piper. API status: ${JSON.stringify(api)}`);
+}
 
+ok("real Whisper and Piper models are ready", api.stt_ready === true && api.tts_ready === true);
 ok("page title describes Forma", (await page.title()).includes("Local Voice Studio"));
-ok("real-vs-stub status is honest", await page.locator(".model-status").innerText().then((t) => t.includes(real ? "LOCAL MODELS" : "DUMMY MODE")));
+ok("status identifies local models", await page.locator(".model-status").innerText().then((t) => t.includes("LOCAL MODELS")));
 ok("desktop side navigation has all destinations", (await page.locator(".sidebar-link").count()) === 5);
 ok("capture and transcript start on the studio page", (await page.locator("#capture").isVisible()) && (await page.locator("#transcript").isVisible()));
 ok("voice output is on the studio page", await page.locator("#speech").isVisible());
@@ -174,13 +179,16 @@ await searchTest.locator(".sidebar-link").filter({ hasText: "Session history" })
 ok("Gemini summaries and Tavily results are not added to session history", (await searchTest.getByText("Playwright fixture answer", { exact: false }).count()) === 0 && (await searchTest.getByText("Direct Tavily fixture", { exact: false }).count()) === 0);
 await searchTest.close();
 
-// End-to-end local audio round trip; no Gemini key/API is used by this test.
+// End-to-end local Piper→Whisper audio round trip; no cloud speech APIs are used.
 const synth = await fetch("http://localhost:5173/api/synthesize", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({ text: "Hello, this is a test of the local speech engine.", voice: "lessac", length_scale: 1 }),
 });
-if (synth.ok) {
+if (!synth.ok) {
+  const detail = await synth.text();
+  ok("local Piper synthesis endpoint responds", false, `HTTP ${synth.status}: ${detail.slice(0, 120)}`);
+} else {
   const wav1 = "/tmp/forma-verify-one.wav";
   fs.writeFileSync(wav1, Buffer.from(await synth.arrayBuffer()));
   await page.locator(".sidebar-link").filter({ hasText: "Voice studio" }).click();
@@ -193,34 +201,30 @@ if (synth.ok) {
   await page.getByRole("button", { name: "Transcribe 1 new part" }).click();
   let got = "";
   for (let attempt = 0; attempt < 80 && !(got = await page.getByLabel("Editable transcript").inputValue()).trim(); attempt++) await page.waitForTimeout(500);
-  if (real) {
-    ok("local Whisper returns real speech text", /hello,? this is a test of (a|the) local speech engine/i.test(got), got.slice(0, 75));
+  ok("local Whisper transcribes Piper-generated audio", /hello,? this is a test of (a|the) local speech engine/i.test(got), got.slice(0, 75));
+
+  const synth2 = await fetch("http://localhost:5173/api/synthesize", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: "Add more words to this session.", voice: "lessac", length_scale: 1 }),
+  });
+  if (!synth2.ok) {
+    const detail = await synth2.text();
+    ok("second local Piper synthesis succeeds", false, `HTTP ${synth2.status}: ${detail.slice(0, 120)}`);
   } else {
-    ok("dummy speech stays explicitly labelled", got.includes("stub transcription"), got.slice(0, 50));
-  }
-  if (real) {
-    const synth2 = await fetch("http://localhost:5173/api/synthesize", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: "Add more words to this session.", voice: "lessac", length_scale: 1 }),
-    });
-    if (synth2.ok) {
-      fs.writeFileSync("/tmp/forma-verify-two.wav", Buffer.from(await synth2.arrayBuffer()));
-      await page.getByRole("button", { name: "Choose another audio file" }).click();
-      await page.locator("#capture input[type=file]").setInputFiles("/tmp/forma-verify-two.wav");
-      await page.waitForFunction(() => [...document.querySelectorAll("#capture button")].some((item) => item.textContent?.includes("Transcribe 1 new part") && !item.hasAttribute("disabled")), null, { timeout: 5000 });
-      await page.getByRole("button", { name: "Transcribe 1 new part" }).click();
-      let appended = "";
-      for (let attempt = 0; attempt < 80; attempt++) {
-        appended = await page.getByLabel("Editable transcript").inputValue();
-        if (appended.length > got.length) break;
-        await page.waitForTimeout(500);
-      }
-      ok("second audio part appends instead of replacing", appended.length > got.length, appended.slice(-60));
+    fs.writeFileSync("/tmp/forma-verify-two.wav", Buffer.from(await synth2.arrayBuffer()));
+    await page.getByRole("button", { name: "Choose another audio file" }).click();
+    await page.locator("#capture input[type=file]").setInputFiles("/tmp/forma-verify-two.wav");
+    await page.waitForFunction(() => [...document.querySelectorAll("#capture button")].some((item) => item.textContent?.includes("Transcribe 1 new part") && !item.hasAttribute("disabled")), null, { timeout: 5000 });
+    await page.getByRole("button", { name: "Transcribe 1 new part" }).click();
+    let appended = "";
+    for (let attempt = 0; attempt < 80; attempt++) {
+      appended = await page.getByLabel("Editable transcript").inputValue();
+      if (appended.length > got.length) break;
+      await page.waitForTimeout(500);
     }
+    ok("second audio part appends instead of replacing", appended.length > got.length, appended.slice(-60));
   }
-} else {
-  ok("local Piper endpoint responds", false, `HTTP ${synth.status}`);
 }
 
 console.log(checks.join("\n"));

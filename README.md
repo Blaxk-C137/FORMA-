@@ -17,21 +17,23 @@ Open <http://localhost:5173>. `npm install` provisions the Python speech backend
 ### Requirements
 
 - Node.js 20+
-- Python 3.10–3.12 recommended and available on PATH (`py -3` on Windows). Python 3.13 was exercised in the development environment; Windows compatibility may depend on current PyTorch/Piper wheels.
+- Python 3.10, 3.11, or 3.12 installed (Windows: Python Launcher `py`; other OSs: `python3`/`python`). The installer selects a supported version and rejects unsupported runtimes.
+- Windows is the primary target. The installer selects OS-appropriate PyTorch installation paths, but support still depends on Python/Piper/PyTorch wheels for that OS and CPU architecture; unsupported combinations stop with an error rather than entering a fallback mode.
 - About 700 MB of one-time model/runtime downloads, plus Node and Python development dependencies. Model weights live outside the repository in `~/.cache/forma/models` by default.
 - Internet for installation/model downloads and when the user explicitly chooses Tavily search or Gemini features. Local Whisper/Piper speech works offline after setup.
 
-If Python is missing, npm installation remains successful and speech falls back to clearly labelled **DUMMY MODE**. Dummy output is never presented as real speech recognition.
+**There is no dummy speech mode.** If Python, packages, model files, or the local inference check is missing or fails, `npm install` exits with an error and logs the failing step instead of pretending setup succeeded.
 
-## What installation provisions
+## What installation provisions and verifies
 
-The frontend `postinstall` script runs `frontend/scripts/setup-ml.mjs`. It is cross-platform and idempotent:
+The frontend `postinstall` script runs `frontend/scripts/setup-ml.mjs` and `frontend/scripts/verify-ml.mjs`:
 
-1. Creates `backend/.venv`.
-2. Installs CPU PyTorch and the FastAPI, Transformers, Piper, and keyring requirements.
-3. Downloads Whisper Tiny (safetensors only) and the Lessac/Alba Piper voices into the model cache.
+1. Selects Python 3.10–3.12 and creates or repairs `backend/.venv`.
+2. Installs CPU-capable PyTorch and backend requirements (FastAPI/Uvicorn, Transformers, Piper, NumPy, HTTP clients, multipart upload support, and keyring); verifies imports and runs `pip check`.
+3. Downloads and checks Whisper Tiny config/weights and both Piper voice/config pairs.
+4. Runs an offline smoke test: synthesizes with both Piper voices, loads Whisper Tiny, and passes local Piper audio through Whisper. It is an install check, not a WER/accuracy benchmark.
 
-The real backend is started automatically by Vite. To skip ML setup for UI-only work, use `FORMA_SKIP_ML=1 npm install`. To retry or repair provisioning, run `npm run setup:ml` from `frontend/`.
+`npm run dev` repeats provisioning checks and the offline inference smoke test **before starting Vite**. If any check fails, dev exits with the failing step and actionable logs; no dummy backend is substituted. To retry or repair provisioning, run `npm run setup:ml` from `frontend/`. The setup requires network access only for missing packages/models; speech itself is local and works offline afterward.
 
 ## Studio features
 
@@ -77,11 +79,11 @@ Google's unpaid-tier terms allow submitted content and responses to be used to p
 
 ## API
 
-The Vite server automatically proxies `/api/*` to the local FastAPI service on port 8787. The UI binds to loopback by default so saved API credentials are not exposed to the LAN; the Python backend also stays loopback-only and has CORS disabled. Arena preview deployments explicitly opt into their proxy host with `FORMA_PREVIEW_MODE=1`. When the ML backend is unavailable, speech endpoints use the clearly labelled stub; cloud endpoints return an honest setup error.
+The Vite server proxies `/api/*` to the required local FastAPI service on port 8787. `npm run dev` provisions and smoke-tests the ML stack before Vite starts. If the backend later stops or becomes unhealthy, API requests return HTTP 503 with setup/log guidance—there is no stub speech backend or cloud speech fallback. The UI binds to loopback by default so saved API credentials are not exposed to the LAN; the Python backend also stays loopback-only and has CORS disabled. Arena preview deployments explicitly opt into their proxy host with `FORMA_PREVIEW_MODE=1`.
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /api/status` | Local STT/TTS readiness and honest stub flag |
+| `GET /api/status` | Local Whisper/Piper asset readiness, model names, and load errors; no stub flag |
 | `POST /api/transcribe` | Multipart WAV `audio` + `language` → transcript |
 | `POST /api/synthesize` | JSON `text`, `voice`, `length_scale` → `audio/wav` |
 | `GET /api/gemini/settings` | Key configured/vault availability (never returns the secret) |
@@ -100,10 +102,8 @@ The audio pipeline is ffmpeg-free: browser capture and upload decoding produce 1
 | `FORMA_MODELS_DIR` | Model cache directory (default `~/.cache/forma/models`) |
 | `FORMA_STT_MODEL` | Local or Hugging Face STT model/checkpoint path |
 | `FORMA_TTS_DIR` | Piper voice directory |
-| `FORMA_SKIP_ML=1` | Skip ML provisioning during `npm install` |
 | `FORMA_GEMINI_API_KEY` | Optional environment-managed Gemini key |
 | `FORMA_ML_PORT` | Local FastAPI port (default `8787`) |
-| `FORMA_USE_SYSTEM_PYTHON=1` | Allow the Vite bridge to use an ambient Python with FastAPI installed |
 
 The selected Gemini model and transcript history are browser preferences/data; the API key is not.
 
@@ -113,12 +113,15 @@ From `frontend/`:
 
 ```bash
 npm run build
-node scripts/verify.mjs
+npm run verify:ml
+npm run dev                    # repeats setup + local inference checks before Vite starts
+# in another terminal, while npm run dev is running:
+node scripts/verify.mjs        # requires real local Whisper and Piper; fails if either is offline
 node scripts/verify-mic.mjs
 python ../backend/verify_search.py
 ```
 
-The browser suite checks the real Piper→Whisper round trip when the backend is ready (otherwise it checks the explicitly labelled dummy result), plus navigation, exports, history, synthetic Tavily/Gemini summary results, Gemini 429 handling, and the free-search-without-Gemini behavior. Backend fixtures cover Tavily keyless request shape/rate-limit errors, ordinary Gemini `generateContent` without grounding tools, and summaries from supplied snippets without contacting either service. Mic tests use Playwright's fake microphone. Model outputs can vary, so transcription checks use tolerant text matching.
+`verify:ml` loads both Piper voices, runs local Piper synthesis, loads Whisper Tiny, and checks one local inference pass. The Playwright suite requires the real speech backend and checks the Piper→Whisper round trip, navigation, exports, history, mocked Tavily/Gemini results, Gemini 429 handling, and free search without a Gemini key. Backend search fixtures are network-free; they verify Tavily request/error handling and Gemini text generation without grounding. No test sends a live Tavily or Gemini request. Model-output checks are smoke tests, not WER scores.
 
 ## Project layout
 
@@ -128,8 +131,9 @@ frontend/src/App.tsx        Page shell, studio workflow, history/session state
 frontend/src/pages/         Voice search, session history, Settings, Terms & privacy
 frontend/src/components/    Capture, transcript, output, export components
 frontend/src/lib/            WAV, export, history, Gemini and Tavily API helpers
-frontend/server/             Vite ML bridge + labelled stub API
-frontend/scripts/             ML setup and Playwright checks
+frontend/server/             Vite bridge to the required local ML backend (no stub)
+frontend/scripts/             Strict ML setup/preflight and Playwright checks
+backend/verify_ml.py           Offline Whisper + Piper installation smoke test
 threeui/predictive-arc.json   Registered Predictive Arc bundle reference
 ```
 
