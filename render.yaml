@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: forma-voice-studio
+    runtime: docker
+    region: frankfurt
+    plan: 1c-2g # Paid: 1 CPU and 2 GB RAM; review Render pricing before deployment.
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/status
+    envVars:
+      - key: FORMA_MODELS_DIR
+        value: /opt/forma/models

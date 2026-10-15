@@ -2,7 +2,7 @@
 
 A local-first desktop web app for transcribing, refining, searching, and speaking text. Record or upload audio, transcribe it with **Whisper Tiny**, search the web with Tavily's **free keyless mode**, optionally summarize results or refurbish text with **Gemini**, then speak it with **Piper VITS**.
 
-Speech audio stays on the device. Tavily and Gemini are optional; their cloud requests happen only after the user explicitly clicks the relevant action.
+In a local installation, speech audio stays on the device and Whisper/Piper work offline after setup. In the optional Render deployment, audio is sent to your Render service for local-model inference; Forma does not use a third-party speech API. Tavily and Gemini are optional; their cloud requests happen only after the user explicitly clicks the relevant action.
 
 ## Quick start
 
@@ -34,6 +34,20 @@ The frontend `postinstall` script runs `frontend/scripts/setup-ml.mjs` and `fron
 4. Runs an offline smoke test: synthesizes with both Piper voices, loads Whisper Tiny, and passes local Piper audio through Whisper. It is an install check, not a WER/accuracy benchmark.
 
 `npm run dev` repeats provisioning checks and the offline inference smoke test **before starting Vite**. If any check fails, dev exits with the failing step and actionable logs; no dummy backend is substituted. To retry or repair provisioning, run `npm run setup:ml` from `frontend/`. The setup requires network access only for missing packages/models; speech itself is local and works offline afterward.
+
+## Deploy to Render
+
+The repository includes a root `Dockerfile`, `.dockerignore`, and `render.yaml` Blueprint. Deploy it as **one Docker Web Service**, not as a Static Site: the container builds the Vite UI, bundles the Python backend and Whisper/Piper models, then FastAPI serves both the UI and `/api/*` from the same origin. Model files are downloaded during the image build and speech inference is offline at runtime.
+
+**Hosted-mode privacy:** in Render, microphone recordings and uploaded audio are sent over the internet to your Render service for Whisper/Piper inference. A clear hosted-processing notice appears in the UI. This is not on-device/offline speech for visitors, though it still does not send speech audio to Gemini or Tavily.
+
+1. Push the repository to GitHub.
+2. In Render, choose **New → Blueprint**, connect the repository, and deploy the root `render.yaml`.
+3. The Blueprint selects Frankfurt and a paid `1c-2g` service (1 CPU, 2 GB RAM). Review Render's current pricing before deploying; the free plan has much less CPU/RAM and may not handle Whisper reliably. See [Render compute plans](https://render.com/docs/compute-plans) and [free-service limits](https://render.com/docs/free).
+4. If the dashboard asks for a Start Command, use `sh -c 'exec uvicorn main:app --host 0.0.0.0 --port "${PORT:-10000}"'`. The Dockerfile already supplies the same command, so normally leave the field blank.
+5. To enable Gemini, add `FORMA_GEMINI_API_KEY` under the service's **Environment** settings as a secret, then redeploy. Do not use a `VITE_` prefix or commit the key.
+
+The Docker image includes the model files, so a persistent disk is not needed for them. Render's default filesystem is otherwise ephemeral; don't change the model downloader to run on every service start. The service was not deployed from this repository by the local build checks; finish and verify the deploy in your Render dashboard.
 
 ## Studio features
 

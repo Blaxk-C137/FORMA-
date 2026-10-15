@@ -4,6 +4,7 @@ import { AudioWave } from "@/components/AudioWave";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
+import { HOSTED_SPEECH_MODE } from "@/lib/deployment";
 
 export type SpeechPanelProps = {
   text: string;
@@ -27,7 +28,7 @@ export function SpeechPanel({ text, onSpeak, speaking, note, audioUrl }: SpeechP
     <section className="panel speech-panel" id="speech" aria-label="Speech synthesis">
       <div className="panel-head">
         <span className="step-chip"><span className="step">03</span> Voice output</span>
-        <Badge variant="outline">PIPER · LOCAL</Badge>
+        <Badge variant="outline">{HOSTED_SPEECH_MODE ? "PIPER · HOSTED" : "PIPER · LOCAL"}</Badge>
       </div>
       <div className="speech-content">
         <div className="voice-options">

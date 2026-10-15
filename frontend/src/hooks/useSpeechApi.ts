@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { HOSTED_SPEECH_MODE } from "@/lib/deployment";
 
 export type ApiStatus = {
   stt_ready: boolean;
@@ -11,8 +12,8 @@ export type ApiResult<T> =
   | { ok: true; data: T }
   | { ok: false; error: string };
 
-const OFFLINE_ERROR =
-  "The local speech backend is not connected yet. This build never substitutes cloud speech APIs.";
+const SPEECH_SERVICE = HOSTED_SPEECH_MODE ? "hosted speech service" : "local speech backend";
+const OFFLINE_ERROR = `The ${SPEECH_SERVICE} is not connected yet. This build never substitutes cloud speech APIs.`;
 
 async function parseJson(res: Response): Promise<Record<string, unknown>> {
   try {
@@ -54,7 +55,7 @@ export function useSpeechApi() {
         const res = await fetch("/api/transcribe", { method: "POST", body: form });
         const body = await parseJson(res);
         if (!res.ok) {
-          return { ok: false, error: typeof body.detail === "string" ? body.detail : "Transcription failed on the local model." };
+          return { ok: false, error: typeof body.detail === "string" ? body.detail : `Transcription failed on the ${HOSTED_SPEECH_MODE ? "hosted" : "local"} model.` };
         }
         return {
           ok: true,
@@ -65,7 +66,7 @@ export function useSpeechApi() {
           },
         };
       } catch {
-        return { ok: false, error: "The local backend could not be reached." };
+        return { ok: false, error: `The ${SPEECH_SERVICE} could not be reached.` };
       }
     },
     [status],
@@ -82,11 +83,11 @@ export function useSpeechApi() {
         });
         if (!res.ok) {
           const body = await parseJson(res);
-          return { ok: false, error: typeof body.detail === "string" ? body.detail : "Speech generation failed on the local voice model." };
+          return { ok: false, error: typeof body.detail === "string" ? body.detail : `Speech generation failed on the ${HOSTED_SPEECH_MODE ? "hosted" : "local"} voice model.` };
         }
         return { ok: true, data: { audio: await res.blob() } };
       } catch {
-        return { ok: false, error: "The local backend could not be reached." };
+        return { ok: false, error: `The ${SPEECH_SERVICE} could not be reached.` };
       }
     },
     [status],

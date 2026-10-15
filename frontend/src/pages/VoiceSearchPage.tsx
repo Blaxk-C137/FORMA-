@@ -7,6 +7,7 @@ import { useSpeechApi } from "@/hooks/useSpeechApi";
 import { summarizeTavilyResults } from "@/lib/geminiApi";
 import { runTavilySearch, type SearchSource } from "@/lib/tavilyApi";
 import { exportSearchResult, type ExportFormat } from "@/lib/export";
+import { HOSTED_SPEECH_MODE } from "@/lib/deployment";
 import { fileToWavBlob } from "@/lib/wav";
 
 type VoiceSearchPageProps = {
@@ -61,7 +62,7 @@ export function VoiceSearchPage({ geminiConfigured, model, onGoToSettings, onToa
   const [transcribingVoice, setTranscribingVoice] = useState(false);
   const [searching, setSearching] = useState(false);
   const [elapsed, setElapsed] = useState(0);
-  const [hint, setHint] = useState("Speak a query; Whisper recognizes it locally. Search results are provided by free, rate-limited Tavily.");
+  const [hint, setHint] = useState(HOSTED_SPEECH_MODE ? "Speak a query; the recording is sent to this Render service for Whisper transcription." : "Speak a query; Whisper recognizes it locally. Search results are provided by free, rate-limited Tavily.");
   const [liveStream, setLiveStream] = useState<MediaStream | null>(null);
   const [result, setResult] = useState<SearchPageResult | null>(null);
   const [error, setError] = useState("");
@@ -91,19 +92,19 @@ export function VoiceSearchPage({ geminiConfigured, model, onGoToSettings, onToa
 
   const transcribeVoice = useCallback(async (blob: Blob) => {
     if (!status?.stt_ready) {
-      setHint("Local Whisper is not ready yet. Start the real backend or type the query instead.");
+      setHint(HOSTED_SPEECH_MODE ? "The hosted Whisper service is not ready yet. Type the query instead." : "Local Whisper is not ready yet. Start the real backend or type the query instead.");
       setTranscribingVoice(false);
       return;
     }
     setTranscribingVoice(true);
-    setHint("Recognizing speech locally…");
+    setHint(HOSTED_SPEECH_MODE ? "Sending the recording to Render for Whisper transcription…" : "Recognizing speech locally…");
     try {
       const wav = await fileToWavBlob(blob);
       const recognized = await transcribe(wav, "voice-search.wav", "auto");
       if (!mountedRef.current) return;
       if (recognized.ok) {
         setQuery(recognized.data.text);
-        setHint("Voice query recognized locally. Review it, then click Search.");
+        setHint(HOSTED_SPEECH_MODE ? "Hosted Whisper transcribed the query. Review it, then click Search." : "Voice query recognized locally. Review it, then click Search.");
         onToast("Voice query ready. Nothing has been sent to web search yet.");
       } else {
         setHint(recognized.error);
@@ -126,7 +127,7 @@ export function VoiceSearchPage({ geminiConfigured, model, onGoToSettings, onToa
 
   const startRecording = useCallback(async () => {
     if (!status?.stt_ready) {
-      setHint(checking ? "Checking the local Whisper backend…" : "Local Whisper is offline. You can still type a search query.");
+      setHint(checking ? (HOSTED_SPEECH_MODE ? "Checking the hosted Whisper service…" : "Checking the local Whisper backend…") : (HOSTED_SPEECH_MODE ? "Hosted Whisper is not ready. You can still type a search query." : "Local Whisper is offline. You can still type a search query."));
       return;
     }
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
@@ -159,7 +160,7 @@ export function VoiceSearchPage({ geminiConfigured, model, onGoToSettings, onToa
       setLiveStream(stream);
       setElapsed(0);
       setRecording(true);
-      setHint("Recording a short search query. Stop to transcribe it on this device.");
+      setHint(HOSTED_SPEECH_MODE ? "Recording a short query. Stop to send it to Render for transcription." : "Recording a short search query. Stop to transcribe it on this device.");
       startRef.current = performance.now();
       tickRef.current = window.setInterval(() => {
         const next = performance.now() - startRef.current;
@@ -221,7 +222,7 @@ export function VoiceSearchPage({ geminiConfigured, model, onGoToSettings, onToa
   return (
     <div className="page-stack">
       <div className="page-heading-row">
-        <div><div className="eyebrow"><Search className="h-3.5 w-3.5" /> VOICE SEARCH</div><h1 className="page-title">Ask the web<span className="text-violet">.</span></h1><p className="page-subtitle">Speak your query; local Whisper transcribes it. Tavily fetches free, structured web results; Gemini is optional for a summary.</p></div>
+        <div><div className="eyebrow"><Search className="h-3.5 w-3.5" /> VOICE SEARCH</div><h1 className="page-title">Ask the web<span className="text-violet">.</span></h1><p className="page-subtitle">{HOSTED_SPEECH_MODE ? "Speak your query; hosted Whisper transcribes it on Render. Tavily fetches free, structured web results; Gemini is optional for a summary." : "Speak your query; local Whisper transcribes it. Tavily fetches free, structured web results; Gemini is optional for a summary."}</p></div>
       </div>
 
       <section className="search-compose settings-card">
@@ -229,7 +230,7 @@ export function VoiceSearchPage({ geminiConfigured, model, onGoToSettings, onToa
           <div className={`search-wave ${recording ? "is-live" : ""}`}><AudioWave stream={liveStream} height={60} /></div>
           <Button variant={recording ? "destructive" : "outline"} onClick={() => recording ? stopRecording() : void startRecording()} disabled={transcribingVoice || searching} className="gap-2">
             {transcribingVoice ? <Loader2 className="h-4 w-4 animate-spin" /> : recording ? <Square className="h-3.5 w-3.5 fill-current" /> : <Mic className="h-4 w-4" />}
-            {transcribingVoice ? "Transcribing locally…" : recording ? `Stop · ${timer}` : "Speak a query"}
+            {transcribingVoice ? (HOSTED_SPEECH_MODE ? "Transcribing on Render…" : "Transcribing locally…") : recording ? `Stop · ${timer}` : "Speak a query"}
           </Button>
         </div>
         <div className="search-provider-row">
@@ -251,7 +252,7 @@ export function VoiceSearchPage({ geminiConfigured, model, onGoToSettings, onToa
             </Button>
           </div>
         </form>
-        <div className="privacy-callout"><ShieldCheck className="h-4 w-4 shrink-0 text-violet" /><p>{provider === "gemini" ? <>After you click <strong>Search the web</strong>, the query goes to Tavily; if Gemini summary is selected, the query plus returned titles, URLs, and snippets (not full pages) go to Google. Tavily and Google's retention/data-use policies apply; Google's abuse-monitoring policy currently states 55-day retention. Gemini quotas and token charges may apply. This uses ordinary text generation, not Google Search grounding.</> : <>After you click <strong>Search the web</strong>, only the query goes to Tavily's free, keyless search API. It is rate-limited; Tavily may retain query data as needed and share it with search-index providers in limited cases. Avoid sensitive searches. Audio stays local.</>}</p></div>
+        <div className="privacy-callout"><ShieldCheck className="h-4 w-4 shrink-0 text-violet" /><p>{HOSTED_SPEECH_MODE ? <>Voice recordings are sent to this Render service for local Whisper inference. </> : <>Voice recordings are processed on this device and not uploaded. </>}{provider === "gemini" ? <>After you click <strong>Search the web</strong>, the query goes to Tavily; if Gemini summary is selected, the query plus returned titles, URLs, and snippets (not full pages) go to Google. Tavily and Google's retention/data-use policies apply; Google's abuse-monitoring policy currently states 55-day retention. Gemini quotas and token charges may apply. This uses ordinary text generation, not Google Search grounding.</> : <>After you click <strong>Search the web</strong>, only the query goes to Tavily's free, keyless search API. It is rate-limited; Tavily may retain query data as needed and share it with search-index providers in limited cases. Avoid sensitive searches.</>}</p></div>
       </section>
 
       {error ? <div className="form-error search-error" role="alert"><AlertCircle className="h-4 w-4 shrink-0" /><span>{error}{error.toLowerCase().includes("tavily") ? <> <a className="external-link" href="https://docs.tavily.com/documentation/keyless" target="_blank" rel="noreferrer">Tavily keyless limits and free access</a></> : error.includes("HTTP 429") ? <> <a className="external-link" href="https://ai.google.dev/gemini-api/docs/rate-limits" target="_blank" rel="noreferrer">Gemini rate-limit details</a></> : null}</span></div> : null}
@@ -268,7 +269,7 @@ export function VoiceSearchPage({ geminiConfigured, model, onGoToSettings, onToa
         </section>
       ) : null}
 
-      <p className="page-footnote">Search results are not stored in browser history. Leaving this page clears the result. {status?.stt_ready ? "Local Whisper is ready." : checking ? "Checking Whisper…" : "Type a query if the local microphone backend is unavailable."}</p>
+      <p className="page-footnote">Search results are not stored in browser history. Leaving this page clears the result. {status?.stt_ready ? (HOSTED_SPEECH_MODE ? "Hosted Whisper is ready." : "Local Whisper is ready.") : checking ? "Checking Whisper…" : "Type a query if the microphone backend is unavailable."}</p>
     </div>
   );
 }

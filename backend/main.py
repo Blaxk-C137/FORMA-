@@ -9,9 +9,11 @@ from __future__ import annotations
 import os
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
 
 from gemini import CredentialVaultUnavailable, GeminiApiError, GeminiError, get_settings as gemini_settings
 from gemini import refurbish as gemini_refurbish
@@ -155,6 +157,13 @@ def tavily_web_search(payload: dict):
         return tavily_search(str(payload.get("query", "")))
     except TavilySearchError as exc:
         return _tavily_error(exc)
+
+
+# Production Docker deployments serve the Vite build from this same origin so
+# browser requests to /api/* stay same-origin. Local development still uses Vite.
+FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+if FRONTEND_DIST.is_dir():
+    app.mount("/", StaticFiles(directory=str(FRONTEND_DIST), html=True), name="frontend")
 
 
 if __name__ == "__main__":

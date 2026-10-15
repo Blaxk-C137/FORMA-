@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import type { GeminiSettings } from "@/lib/geminiApi";
 import { getGeminiSettings, removeGeminiKey, saveGeminiKey } from "@/lib/geminiApi";
 import { GEMINI_MODELS } from "@/lib/geminiModels";
+import { HOSTED_SPEECH_MODE } from "@/lib/deployment";
 
 type SettingsPageProps = {
   model: string;
@@ -82,7 +83,7 @@ export function SettingsPage({ model, onModelChange, gemini, onGeminiRefresh, on
 
       <section className="settings-card">
         <div className="settings-card-head">
-          <div className="flex items-center gap-3"><span className="settings-icon"><KeyRound className="h-4 w-4" /></span><div><h2>Gemini API key</h2><p>Optional · saved on this machine</p></div></div>
+          <div className="flex items-center gap-3"><span className="settings-icon"><KeyRound className="h-4 w-4" /></span><div><h2>Gemini API key</h2><p>{HOSTED_SPEECH_MODE ? "Optional · set in Render Environment" : "Optional · saved on this machine"}</p></div></div>
           {loading ? <Badge variant="outline">CHECKING…</Badge> : <Badge variant="outline" className={gemini?.configured ? "status-good" : ""}>{gemini?.configured ? "CONNECTED" : "NOT SET UP"}</Badge>}
         </div>
         <div className="settings-card-body">
@@ -103,11 +104,11 @@ export function SettingsPage({ model, onModelChange, gemini, onGeminiRefresh, on
                 {gemini?.configured ? <Button variant="outline" onClick={() => void handleRemoveKey()} disabled={removingKey} className="gap-2">{removingKey ? <Loader2 className="h-4 w-4 animate-spin" /> : null}Remove saved key</Button> : null}
               </div>
               <p className="field-help">Your key is sent to Google's model-list endpoint to verify it, then saved by the local Python backend in the OS credential vault (Windows Credential Manager on Windows). Forma never returns the saved key to the browser or writes it to localStorage.</p>
-              {!gemini?.vault_available ? <div className="notice-card notice-warning"><KeyRound className="h-4 w-4" /><p>The OS credential vault is not available in this environment, so key entry is disabled rather than saving the secret insecurely. On Windows, enable Credential Manager or set <code>FORMA_GEMINI_API_KEY</code> as a user environment variable.</p></div> : null}
+              {!gemini?.vault_available ? <div className="notice-card notice-warning"><KeyRound className="h-4 w-4" /><p>{HOSTED_SPEECH_MODE ? <>The server credential vault is unavailable. To enable Gemini, add <code>FORMA_GEMINI_API_KEY</code> as a secret in Render's Environment settings; do not place it in browser code.</> : <>The OS credential vault is not available in this environment, so key entry is disabled rather than saving the secret insecurely. On Windows, enable Credential Manager or set <code>FORMA_GEMINI_API_KEY</code> as a user environment variable.</>}</p></div> : null}
             </>
           )}
           {error ? <p className="form-error" role="alert">{error}</p> : null}
-          <div className="privacy-callout"><ShieldCheck className="h-4 w-4 shrink-0 text-violet" /><p>Transcription stays local. Refurbishment sends transcript text only after you click <strong>Refurbish with Gemini</strong>. Search sends the query to Tavily; Gemini summary additionally sends the query and returned titles, URLs, and snippets (not full pages) to Google for text generation. Provider data-use and retention terms apply; Forma does not use Google Search grounding.</p></div>
+          <div className="privacy-callout"><ShieldCheck className="h-4 w-4 shrink-0 text-violet" /><p>{HOSTED_SPEECH_MODE ? "Speech audio is sent to this Render service for local Whisper/Piper inference. " : "Speech transcription stays on this device. "}Refurbishment sends transcript text only after you click <strong>Refurbish with Gemini</strong>. Search sends the query to Tavily; Gemini summary additionally sends the query and returned titles, URLs, and snippets (not full pages) to Google for text generation. Provider data-use and retention terms apply; Forma does not use Google Search grounding.</p></div>
           <a className="external-link" href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">Get a Gemini API key <ExternalLink className="h-3.5 w-3.5" /></a>
         </div>
       </section>

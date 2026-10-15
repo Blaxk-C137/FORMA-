@@ -15,6 +15,7 @@ import { AudioWave } from "@/components/AudioWave";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { HOSTED_SPEECH_MODE } from "@/lib/deployment";
 import { fileToWavBlob, pcmChunksToWavBlob } from "@/lib/wav";
 
 const MAX_SECONDS = 120;
@@ -355,7 +356,7 @@ export function CaptureCard({
         </div>
       </div>
 
-      <div className="privacy-note"><Shield className="h-3.5 w-3.5 text-violet" /> Audio is transcribed locally with Whisper. No audio is sent to Gemini.</div>
+      <div className="privacy-note"><Shield className="h-3.5 w-3.5 text-violet" />{HOSTED_SPEECH_MODE ? " Audio is sent to this Render service for Whisper inference, not to Gemini or Tavily for speech processing." : " Audio is transcribed locally with Whisper. No audio is sent to Gemini."}</div>
     </section>
   );
 }

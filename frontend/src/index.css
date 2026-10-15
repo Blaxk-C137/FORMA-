@@ -273,6 +273,7 @@
 .privacy-callout, .notice-card { display: flex; align-items: flex-start; gap: 10px; border: 1px solid color-mix(in srgb, var(--violet) 22%, var(--border)); border-radius: 11px; background: color-mix(in srgb, var(--violet) 5%, var(--card)); padding: 11px 12px; color: var(--muted-foreground); font-size: 10px; line-height: 1.65; }
 .privacy-callout p, .notice-card p { margin: 0; }
 .notice-card code { color: var(--foreground); font-size: .95em; }
+.hosted-mode-disclosure { margin-bottom: 16px; border-color: color-mix(in srgb, var(--amber, #f59e0b) 34%, var(--border)); background: color-mix(in srgb, var(--amber, #f59e0b) 7%, var(--card)); font-size: 11px; }
 .notice-warning { border-color: color-mix(in srgb, #e7a554 35%, var(--border)); background: color-mix(in srgb, #e7a554 7%, var(--card)); }
 .status-good { color: #67ad43; }
 .external-link { display: inline-flex; align-items: center; gap: 6px; width: fit-content; color: var(--violet); font-size: 10px; text-decoration: none; }

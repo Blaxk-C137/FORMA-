@@ -5,6 +5,7 @@ import {
   ScrollText,
   Search,
   Settings2,
+  ShieldCheck,
   Sparkles,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -15,6 +16,7 @@ import { SpeechPanel } from "@/components/SpeechPanel";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { TranscriptCard } from "@/components/TranscriptCard";
 import { useSpeechApi } from "@/hooks/useSpeechApi";
+import { HOSTED_SPEECH_MODE } from "@/lib/deployment";
 import { getGeminiSettings, refurbishText, type GeminiSettings } from "@/lib/geminiApi";
 import { exportSessions, exportTranscript, type ExportFormat } from "@/lib/export";
 import { clearActiveSession, formatSessionTitle, persistHistory, persistSession, readActiveSession, readHistory, sessionWordCount, type SessionRecord } from "@/lib/history";
@@ -77,7 +79,7 @@ export default function App() {
   const [refurbishing, setRefurbishing] = useState(false);
   const [suggestion, setSuggestion] = useState("");
   const [textStatus, setTextStatus] = useState(initial?.textStatus ?? "Ready for your words");
-  const [note, setNote] = useState("Choose a local Piper voice to hear your text.");
+  const [note, setNote] = useState(HOSTED_SPEECH_MODE ? "Choose a Piper voice; generation runs on the hosted service." : "Choose a local Piper voice to hear your text.");
   const [toast, setToast] = useState("");
   const [history, setHistory] = useState<SessionRecord[]>(() => readHistory());
   const [sessionId, setSessionId] = useState(initial?.id ?? newId());
@@ -175,7 +177,9 @@ export default function App() {
 
   const handleTranscribe = useCallback(async (language: string) => {
     if (!status?.stt_ready) {
-      showToast(checking ? "Checking the local speech engine…" : "Local Whisper is not ready. Check setup; no cloud speech fallback is used.");
+      showToast(checking
+        ? (HOSTED_SPEECH_MODE ? "Checking the hosted speech service…" : "Checking the local speech engine…")
+        : (HOSTED_SPEECH_MODE ? "Hosted Whisper is not ready. No cloud speech fallback is used." : "Local Whisper is not ready. Check setup; no cloud speech fallback is used."));
       return;
     }
     const operationToken = sessionTokenRef.current;
@@ -200,7 +204,7 @@ export default function App() {
       transcribedCountRef.current = index + 1;
       setTranscribedCount(index + 1);
       appended += 1;
-      setTextStatus("Transcribed locally with Whisper");
+      setTextStatus(HOSTED_SPEECH_MODE ? "Transcribed with hosted Whisper" : "Transcribed locally with Whisper");
     }
     setTranscribing(false);
     if (appended) showToast(`${appended} new ${appended === 1 ? "part" : "parts"} transcribed and appended.`);
@@ -233,12 +237,12 @@ export default function App() {
     const text = transcriptRef.current.trim();
     if (!text) return;
     if (!status?.tts_ready) {
-      showToast("Local Piper is not ready. No cloud text-to-speech fallback is used.");
+      showToast(HOSTED_SPEECH_MODE ? "Hosted Piper is not ready. No cloud text-to-speech fallback is used." : "Local Piper is not ready. No cloud text-to-speech fallback is used.");
       return;
     }
     const operationToken = sessionTokenRef.current;
     setSpeaking(true);
-    setNote("Generating speech locally…");
+    setNote(HOSTED_SPEECH_MODE ? "Generating speech on the hosted service…" : "Generating speech locally…");
     const response = await synthesize(text, voice, pace);
     if (operationToken !== sessionTokenRef.current) return;
     setSpeaking(false);
@@ -251,7 +255,7 @@ export default function App() {
     const url = URL.createObjectURL(response.data.audio);
     outUrlRef.current = url;
     setOutUrl(url);
-    setNote("Your local audio is ready.");
+    setNote(HOSTED_SPEECH_MODE ? "Hosted Piper audio is ready." : "Your local audio is ready.");
   }, [showToast, status, synthesize]);
 
   const saveActiveSessionNow = useCallback(() => {
@@ -289,7 +293,7 @@ export default function App() {
     setRefurbishing(false);
     setSuggestion("");
     setTextStatus("Ready for your words");
-    setNote("Choose a local Piper voice to hear your text.");
+    setNote(HOSTED_SPEECH_MODE ? "Choose a Piper voice; generation runs on the hosted service." : "Choose a local Piper voice to hear your text.");
     const nextToken = sessionTokenRef.current + 1;
     sessionTokenRef.current = nextToken;
     setSessionToken(nextToken);
@@ -350,7 +354,7 @@ export default function App() {
   const geminiConfigured = Boolean(geminiSettings?.configured);
   const pendingCount = Math.max(0, audioSegments.length - transcribedCount);
   const statusLabel = status?.stt_ready && status?.tts_ready
-    ? "LOCAL MODELS"
+    ? (HOSTED_SPEECH_MODE ? "HOSTED MODELS" : "LOCAL MODELS")
     : checking
       ? "CONNECTING…"
       : "MODELS OFFLINE";
@@ -365,7 +369,7 @@ export default function App() {
         <nav className="sidebar-nav">
           {NAV.map(({ id, label, Icon }) => <button key={id} type="button" className={`sidebar-link ${page === id ? "active" : ""}`} aria-current={page === id ? "page" : undefined} onClick={() => navigate(id)}><Icon className="h-[18px] w-[18px]" /><span>{label}</span>{id === "history" && history.length ? <small>{history.length}</small> : null}</button>)}
         </nav>
-        <div className="sidebar-bottom"><div className="sidebar-status"><span className={`status-dot ${status?.stt_ready && status?.tts_ready ? "online" : ""}`} />{statusLabel}</div><div className="sidebar-local-note">Whisper + Piper run locally.<br />Tavily search · Gemini optional.</div></div>
+        <div className="sidebar-bottom"><div className="sidebar-status"><span className={`status-dot ${status?.stt_ready && status?.tts_ready ? "online" : ""}`} />{statusLabel}</div><div className="sidebar-local-note">{HOSTED_SPEECH_MODE ? <>Whisper + Piper run on Render.<br />Captured audio is sent here.</> : <>Whisper + Piper run on this device.<br />Tavily search · Gemini optional.</>}</div></div>
       </aside>
 
       <div className="workspace-shell">
@@ -380,9 +384,10 @@ export default function App() {
         </header>
 
         <main className="workspace-main">
+          {HOSTED_SPEECH_MODE ? <div className="notice-card hosted-mode-disclosure" role="note"><ShieldCheck className="h-4 w-4 shrink-0 text-violet" /><p><strong>Hosted speech processing:</strong> microphone recordings and uploaded audio are sent to this Render service for Whisper/Piper inference. Forma does not send speech audio to Google or Tavily.</p></div> : null}
           {page === "studio" ? (
             <div className="page-stack studio-page">
-              <div className="page-heading-row studio-heading"><div><div className="eyebrow"><Sparkles className="h-3.5 w-3.5" /> LOCAL VOICE WORKSPACE</div><h1 className="page-title">Voice studio<span className="text-violet">.</span></h1><p className="page-subtitle">Capture, append, refine, then give your words a voice.</p></div><span className="session-word-count">{sessionWordCount(transcript)} words · {sessionSegmentBase + audioSegments.length} audio {sessionSegmentBase + audioSegments.length === 1 ? "part" : "parts"}</span></div>
+              <div className="page-heading-row studio-heading"><div><div className="eyebrow"><Sparkles className="h-3.5 w-3.5" /> {HOSTED_SPEECH_MODE ? "HOSTED LOCAL-MODEL WORKSPACE" : "LOCAL VOICE WORKSPACE"}</div><h1 className="page-title">Voice studio<span className="text-violet">.</span></h1><p className="page-subtitle">Capture, append, refine, then give your words a voice.</p></div><span className="session-word-count">{sessionWordCount(transcript)} words · {sessionSegmentBase + audioSegments.length} audio {sessionSegmentBase + audioSegments.length === 1 ? "part" : "parts"}</span></div>
               {sessionSegmentBase > 0 && !audioSegments.length ? <div className="notice-card"><Clock3 className="h-4 w-4 text-violet" /><p>This transcript was restored from History. Original audio is not stored there; new recordings will append to the transcript.</p></div> : null}
               <div className="studio-grid">
                 <CaptureCard key={sessionToken} sessionToken={sessionToken} onCapture={handleCapture} onTranscribe={(language) => void handleTranscribe(language)} transcribing={transcribing} hasAudio={audioSegments.length > 0} audioName={audioName} audioUrl={audioUrl} segmentCount={sessionSegmentBase + audioSegments.length} pendingCount={pendingCount} />
